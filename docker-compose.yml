@@ -1,0 +1,45 @@
+services:
+  signage:
+    build: .
+    container_name: pittwater-signage
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      # SQLite database + uploaded files persist in a named volume. Bind mounts
+      # on Docker Desktop for macOS don't support the file-locking semantics
+      # SQLite WAL mode needs (SQLITE_IOERR_SHMOPEN). Back up via:
+      #   docker run --rm -v server_signage-data:/data -v $PWD:/backup \
+      #     alpine tar czf /backup/signage-data.tgz -C /data .
+      - signage-data:/app/data
+    environment:
+      # Override these for production. SESSION_SECRET MUST be a long random string.
+      SESSION_SECRET: "change-me-to-a-long-random-string-please"
+      # Optional: change the listen port inside the container
+      # PORT: "3000"
+      # Optional: trust proxy headers (set to 1 if behind nginx/traefik)
+      # TRUST_PROXY: "1"
+      # UniFi credentials are now managed in the admin UI:
+      #   admin → Settings → UniFi Protect & Access
+      # The values below are only used as a fallback if the admin Settings
+      # are empty (e.g. for a brand new deployment). Once you have set them
+      # in the UI, you can safely remove these env vars.
+      UNIFI_PORT: "12445"
+      # UNIFI_HOST: "192.168.10.1"
+      # UNIFI_TOKEN: "your-access-bearer-token"
+
+  # RTMP→HLS bridge — pulls from any IP camera publishing RTMP and republishes
+  # as HLS so the signage browsers can play it via HLS.js. Edit mediamtx.yml
+  # to add or change camera sources.
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    container_name: pittwater-mediamtx
+    restart: unless-stopped
+    ports:
+      - "1935:1935"        # RTMP ingest (cameras push to this)
+      - "8888:8888"        # HLS playback (signage page hits this)
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml:ro
+
+volumes:
+  signage-data:

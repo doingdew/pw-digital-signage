@@ -1,0 +1,24 @@
+{
+  "name": "pittwater-signage",
+  "version": "1.0.0",
+  "description": "Multi-screen digital signage server (admin + signage + WebSocket)",
+  "main": "server/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@slack/socket-mode": "^2.0.6",
+    "@slack/web-api": "^7.15.1",
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^11.3.0",
+    "cookie-parser": "^1.4.7",
+    "express": "^4.21.0",
+    "multer": "^1.4.5-lts.1",
+    "ws": "^8.18.0"
+  }
+}

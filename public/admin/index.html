@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Signage Admin</title>
+<link rel="stylesheet" href="/admin/static/style.css">
+<script src="/fonts/fonts.js" defer></script>
+</head>
+<body>
+
+<div id="sidebar">
+  <div id="sidebar-logo">
+    <div class="logo-title">📺 Signage Admin</div>
+    <div class="logo-sub" id="user-label">…</div>
+  </div>
+  <div id="nav">
+    <div class="nav-section">Screens</div>
+    <div class="nav-item active" data-route="screens">
+      <span class="icon">🖥️</span> All Screens
+    </div>
+    <div id="screens-nav-list"></div>
+    <div class="nav-section">Library</div>
+    <div class="nav-item" data-route="assets"><span class="icon">🖼️</span> Assets</div>
+    <div class="nav-item" data-route="messages"><span class="icon">💬</span> Broadcast</div>
+    <div class="nav-section">Integrations</div>
+    <div class="nav-item" data-route="slack"><span class="icon">💬</span> Slack</div>
+    <div class="nav-item" data-route="settings"><span class="icon">⚙️</span> Settings</div>
+    <div class="nav-section">Account</div>
+    <div class="nav-item" data-route="logout"><span class="icon">🚪</span> Sign out</div>
+  </div>
+  <div id="connection-status">
+    <div id="conn-dot"></div>
+    <span id="conn-label">Offline</span>
+  </div>
+</div>
+
+<div id="main">
+  <div id="topbar">
+    <div id="topbar-title">All Screens</div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <button id="theme-toggle" title="Toggle admin theme">🌗 Auto</button>
+      <div id="topbar-actions"></div>
+    </div>
+  </div>
+  <div id="content"></div>
+</div>
+
+<div id="toast"></div>
+
+<script src="/admin/static/app.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+/* Curated font list. Loaded lazily by signage and admin via the
+   selected font's link tag injected at runtime. We use Google Fonts CDN
+   URLs by default; if you need fully offline, replace these with locally-
+   hosted woff2 files in /public/fonts/woff2/<family>.woff2 and update the
+   FONTS array in admin/app.js to match. */
+
+/* This file is small on purpose — it just exposes the AVAILABLE_FONTS
+   metadata used by both pages. Actual font files load on demand. */

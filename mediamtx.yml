@@ -1,0 +1,34 @@
+# MediaMTX config — RTMP→HLS bridge for the signage camera overlay.
+# Each `paths` entry maps a stream name (the part of the URL after :8888/)
+# to an upstream source the server pulls from on demand.
+#
+# Add new cameras by appending more entries. To accept push-style RTMP from
+# a camera that pushes to the bridge directly, set source: publisher.
+
+# Enable RTMP ingest so cameras can publish into the bridge.
+rtsp: no
+rtmp: yes
+rtmpAddress: :1935
+hls: yes
+webrtc: no
+srt: no
+
+# HLS tuning — fine for non-real-time security feeds.
+hlsAddress: :8888
+hlsAlwaysRemux: yes
+hlsVariant: mpegts
+hlsSegmentCount: 5
+hlsSegmentDuration: 2s
+
+paths:
+  # Cameras push their RTMP feed in to this server. MediaMTX accepts the
+  # publisher and republishes the same stream as HLS. Configure the camera's
+  # publish target (its "MRL") to:
+  #   rtmp://<docker-host-ip>:1935/live/stream0
+  # for the first camera, /live/stream1 for the second, etc.
+  live/stream0:
+    source: publisher
+  live/stream1:
+    source: publisher
+  live/stream2:
+    source: publisher

@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pittwater Digital Signage</title>
+<link rel="stylesheet" href="/signage/static/style.css" id="signage-style">
+<script src="/fonts/fonts.js" defer></script>
+<script src="/signage/static/worldmap.js" defer></script>
+<script src="/signage/static/worldmap-dots.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js" defer></script>
+</head>
+<body>
+<div id="bg-gradient"></div>
+
+<!-- HEADER: 5 sections — logo · doors · time (center) · weather · date -->
+<div id="header">
+  <div id="header-logo"></div>
+  <div id="header-doors" title="Door status"></div>
+  <div id="header-time">12:00 AM</div>
+  <div id="header-weather-mini">—</div>
+  <div id="header-date-str">Loading…</div>
+</div>
+
+<!-- ZONE DOTS -->
+<div id="zone-dots"></div>
+
+<!-- PERSISTENT MESSAGE TICKER (shown for messageFooterMinutes after a broadcast) -->
+<div id="message-ticker">
+  <div id="ticker-icon">📢</div>
+  <div id="ticker-content">
+    <div id="ticker-body">—</div>
+    <div id="ticker-meta">—</div>
+  </div>
+  <div id="ticker-count"></div>
+</div>
+
+<!-- ZONES -->
+<div class="zone" id="zone-clock">
+  <div id="clock-digital">
+    <div id="clock-row">
+      <div id="clock-big">12:00</div>
+      <div id="clock-ampm">AM</div>
+    </div>
+    <div id="clock-date-big">Loading…</div>
+  </div>
+  <div id="clock-minimal">
+    <div id="clock-minimal-time">12:00</div>
+    <div id="clock-minimal-ampm">AM</div>
+    <div id="clock-minimal-date">Loading…</div>
+  </div>
+  <div id="clock-analog">
+    <div id="analog-face">
+      <svg id="analog-svg" width="420" height="420" viewBox="0 0 420 420">
+        <circle cx="210" cy="210" r="200" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="2"/>
+        <circle cx="210" cy="210" r="190" fill="rgba(255,255,255,0.02)" stroke="rgba(0,170,255,0.3)" stroke-width="1.5"/>
+        <g id="hour-ticks"></g>
+        <g id="minute-ticks"></g>
+        <g id="hour-labels" font-family="inherit" font-size="20" fill="rgba(255,255,255,0.5)" text-anchor="middle" dominant-baseline="central"></g>
+        <line id="hand-hour"   x1="210" y1="210" x2="210" y2="80"  stroke="white" stroke-width="6" stroke-linecap="round"/>
+        <line id="hand-minute" x1="210" y1="210" x2="210" y2="46"  stroke="white" stroke-width="4" stroke-linecap="round"/>
+        <line id="hand-second" x1="210" y1="220" x2="210" y2="40"  stroke="var(--accent)" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="210" cy="210" r="8" fill="var(--accent)"/>
+        <circle cx="210" cy="210" r="3" fill="white"/>
+      </svg>
+    </div>
+    <div id="clock-analog-date">Loading…</div>
+    <div id="clock-analog-digital">12:00 AM</div>
+  </div>
+  <!-- Optional row of world clock cards shown under the main clock when enabled -->
+  <div id="clock-worldclocks-row"></div>
+</div>
+
+<div class="zone" id="zone-weather">
+  <div id="weather-top">
+    <div id="weather-hero">
+      <div id="weather-icon">🌤️</div>
+      <div id="weather-temp">—°</div>
+      <div id="weather-hero-meta">
+        <div id="weather-desc">Loading…</div>
+        <div id="weather-location-el">—</div>
+        <div id="weather-hilorow">
+          <div class="hilo-item"><span class="hilo-val" id="weather-hi">—</span><span class="hilo-lbl">High</span></div>
+          <div class="hilo-item"><span class="hilo-val" id="weather-lo">—</span><span class="hilo-lbl">Low</span></div>
+          <div class="hilo-item"><span class="hilo-val" id="weather-sunrise">—</span><span class="hilo-lbl">Sunrise</span></div>
+          <div class="hilo-item"><span class="hilo-val" id="weather-sunset">—</span><span class="hilo-lbl">Sunset</span></div>
+        </div>
+      </div>
+    </div>
+    <div id="weather-details">
+      <div class="weather-detail"><span class="val" id="weather-humidity">—</span><span class="lbl">Humidity</span></div>
+      <div class="weather-detail"><span class="val" id="weather-wind">—</span><span class="lbl">Wind</span></div>
+      <div class="weather-detail"><span class="val" id="weather-feels">—</span><span class="lbl">Feels Like</span></div>
+      <div class="weather-detail"><span class="val" id="weather-uv">—</span><span class="lbl">UV Index</span></div>
+    </div>
+  </div>
+  <div id="weather-forecast-section">
+    <div id="weather-forecast-label">3-Day Forecast</div>
+    <div id="weather-forecast"></div>
+  </div>
+</div>
+
+<div class="zone" id="zone-shipments">
+  <div class="zone-title" style="align-self:flex-start;">📦 Incoming Shipments</div>
+  <table id="shipments-table">
+    <thead><tr><th>Ref #</th><th>Supplier / Origin</th><th>Items</th><th>ETA</th><th>Status</th><th>Notes</th></tr></thead>
+    <tbody id="shipments-body">
+      <tr><td colspan="6" style="color:var(--subtext);text-align:center;font-size:18px;padding:40px;">Configure Google Sheet URL in admin</td></tr>
+    </tbody>
+  </table>
+  <div id="shipments-updated">Last updated: —</div>
+</div>
+
+<div class="zone" id="zone-slack">
+  <div id="slack-header">
+    <span style="font-size:20px;color:var(--subtext);letter-spacing:3px;text-transform:uppercase;">💬 Team Messages</span>
+  </div>
+  <div id="slack-message-display">
+    <div id="slack-empty">No messages yet — send one from admin</div>
+    <div id="slack-content" style="display:none;">
+      <div id="slack-sender"></div>
+      <div id="slack-message-text"></div>
+      <div id="slack-timestamp"></div>
+    </div>
+  </div>
+  <div id="slack-msg-count"></div>
+</div>
+
+<div class="zone" id="zone-kpi">
+  <div class="zone-title" style="align-self:flex-start;">📊 Today's Performance</div>
+  <div id="kpi-grid"></div>
+  <div style="font-size:13px;color:var(--subtext);margin-top:24px;">Refreshes every 5 min</div>
+</div>
+
+<div class="zone" id="zone-safety">
+  <div id="safety-icon">⚠️</div>
+  <div id="safety-label">Safety Reminder</div>
+  <div id="safety-text">Loading…</div>
+</div>
+
+<div class="zone" id="zone-motivation">
+  <div id="quote-mark">"</div>
+  <div id="motivation-text">Loading…</div>
+  <div id="motivation-author"></div>
+</div>
+
+<div class="zone" id="zone-doors">
+  <div id="camera-grid"></div>
+  <div id="cam-updated"></div>
+</div>
+
+<div class="zone" id="zone-sports">
+  <div class="zone-title" style="align-self:flex-start;">🏆 Sports Scores</div>
+  <div id="sports-leagues"><div style="color:var(--subtext);font-size:18px;font-weight:200;">Loading scores…</div></div>
+  <div id="sports-updated"></div>
+</div>
+
+<div class="zone" id="zone-sports-results">
+  <div class="zone-title" style="align-self:flex-start;">🏆 Recent Results <span style="color:var(--subtext);font-size:14px;letter-spacing:2px;margin-left:12px;">LAST 24 HOURS</span></div>
+  <div id="sports-results-leagues"><div style="color:var(--subtext);font-size:18px;font-weight:200;">Loading scores…</div></div>
+  <div id="sports-results-updated"></div>
+</div>
+
+<div class="zone" id="zone-sports-upcoming">
+  <div class="zone-title" style="align-self:flex-start;">🏆 Coming Up <span style="color:var(--subtext);font-size:14px;letter-spacing:2px;margin-left:12px;">NEXT 24 HOURS</span></div>
+  <div id="sports-upcoming-leagues"><div style="color:var(--subtext);font-size:18px;font-weight:200;">Loading scores…</div></div>
+  <div id="sports-upcoming-updated"></div>
+</div>
+
+<div class="zone" id="zone-trends">
+  <div class="zone-title" style="align-self:flex-start;">🔥 What's Trending</div>
+  <div id="trends-wrap">
+    <div class="trend-col">
+      <div class="trend-col-title">📰 Top Headlines</div>
+      <div id="trends-news"><div class="trend-empty">Loading…</div></div>
+    </div>
+    <div class="trend-col">
+      <div class="trend-col-title">🔍 Google Trends</div>
+      <div id="trends-google"><div class="trend-empty">Loading…</div></div>
+    </div>
+  </div>
+  <div id="trends-updated"></div>
+</div>
+
+<div class="zone" id="zone-radar">
+  <div id="radar-title">🌧️ Weather Radar — <span id="radar-station-label">—</span></div>
+  <div id="radar-map-wrap"><div id="radar-map"></div></div>
+  <div id="radar-meta">Google Maps base · NWS NEXRAD overlay</div>
+</div>
+
+<div class="zone" id="zone-traffic">
+  <div id="traffic-title">🚗 Traffic — <span id="traffic-label-display">—</span></div>
+  <div id="traffic-map-wrap"><div id="traffic-map"></div></div>
+  <div id="traffic-meta">Google Maps live traffic</div>
+</div>
+
+<div class="zone" id="zone-slides">
+  <iframe id="slides-iframe" allowfullscreen></iframe>
+  <div id="slides-empty">Configure a Google Slides URL in admin → Slides</div>
+</div>
+
+<div class="zone" id="zone-worldclocks">
+  <div id="worldclocks-mapwrap">
+    <svg id="worldclocks-map" viewBox="0 0 1000 394" preserveAspectRatio="xMidYMid meet"></svg>
+    <div id="worldclocks-overlay"></div>
+  </div>
+</div>
+
+<div class="zone" id="zone-sunarc">
+  <div id="sunarc-title">☀️ <span id="sunarc-label">Today</span></div>
+  <div id="sunarc-wrap">
+    <svg id="sunarc-svg" viewBox="0 0 800 400" preserveAspectRatio="xMidYMid meet"></svg>
+  </div>
+  <div id="sunarc-meta">
+    <span><span class="lbl">Sunrise</span> <span class="val" id="sunarc-rise">—</span></span>
+    <span><span class="lbl">Sunset</span> <span class="val" id="sunarc-set">—</span></span>
+    <span><span class="lbl">Daylight</span> <span class="val" id="sunarc-len">—</span></span>
+  </div>
+  <div id="sunarc-forecast"></div>
+</div>
+
+<div class="zone" id="zone-calendar">
+  <div class="zone-title" style="align-self:flex-start;">📅 Upcoming Events</div>
+  <div id="calendar-list"><div class="trend-empty">Loading…</div></div>
+</div>
+
+<div class="zone" id="zone-meetings">
+  <div class="zone-title" style="align-self:flex-start;">🚪 Meeting Rooms</div>
+  <div id="meetings-grid"><div class="trend-empty">Loading…</div></div>
+  <div id="meetings-updated"></div>
+</div>
+
+<div class="zone" id="zone-bignum">
+  <div id="bignum-label">—</div>
+  <div id="bignum-row">
+    <div id="bignum-value">—</div>
+    <div id="bignum-unit"></div>
+  </div>
+  <div id="bignum-subline"></div>
+</div>
+
+<!-- IDLE OVERLAY -->
+<div id="idle-overlay">
+  <div id="idle-mode-content"></div>
+</div>
+
+<!-- OVERLAYS -->
+<div id="camera-overlay">
+  <div id="camera-alert-banner"><span class="alert-icon">🚛</span> DELIVERY ALERT — VEHICLE AT GATE <span class="alert-icon">🚨</span></div>
+  <div id="camera-feed-area">
+    <div id="camera-placeholder"><div class="cam-icon">📷</div><p>Camera Feed</p></div>
+    <iframe id="camera-iframe" style="display:none;"></iframe>
+    <video  id="camera-video"  style="display:none;" autoplay muted playsinline></video>
+  </div>
+</div>
+
+<div id="message-overlay">
+  <div id="message-priority-badge"></div>
+  <div id="message-from"></div>
+  <div id="message-body"></div>
+  <div id="message-dismiss-auto"></div>
+</div>
+
+<!-- Full-page popup shown for 5s when a door lock/position state changes -->
+<div id="door-overlay">
+  <div id="door-overlay-icon">🔒</div>
+  <div id="door-overlay-name">—</div>
+  <div id="door-overlay-state">—</div>
+  <div id="door-overlay-sub">Status changed</div>
+</div>
+
+<script src="/signage/static/app.js" defer></script>
+</body>
+</html>

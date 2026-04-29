@@ -1,0 +1,686 @@
+:root {
+  --bg: #0a0e1a;
+  --accent: #00aaff;
+  --text: #ffffff;
+  --subtext: #a0b4cc;
+  --card-bg: rgba(255,255,255,0.06);
+  --card-border: rgba(255,255,255,0.12);
+  --font: 'Inter', system-ui, -apple-system, sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: var(--font); height: 100vh; overflow: hidden; position: relative; }
+
+/* HEADER — 5 sections, evenly spaced. All 5 columns share equal width
+   and each item is centered inside its column, so the gaps between
+   logo→doors→time→weather→date are identical. Height + font sizes are
+   driven by body.header-size-{small|medium|large|xl}. */
+#header {
+  position: fixed; top: 0; left: 0; right: 0;
+  display: grid; grid-template-columns: repeat(5, 1fr);
+  align-items: center;
+  padding: 0 48px; background: rgba(0,0,0,0.45); backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--card-border); z-index: 100;
+}
+#header-logo,
+#header-doors,
+#header-time,
+#header-weather-mini,
+#header-date-str { justify-self: center; text-align: center; }
+
+/* Header size scales — set on <body> by applyZoneSizes(). The --header-pad
+   custom property is what every zone uses for its top padding so per-zone
+   rules automatically track the chosen header height. */
+body                    { --header-pad: 90px; }
+body.header-size-small  { --header-pad: 70px; }
+body.header-size-medium { --header-pad: 90px; }
+body.header-size-large  { --header-pad: 124px; }
+body.header-size-xl     { --header-pad: 158px; }
+
+body.header-size-small  #header { height: 60px; }
+body.header-size-small  #header-logo img { height: 38px; }
+body.header-size-small  #header-time { font-size: 22px; letter-spacing: 2px; }
+body.header-size-small  #header-date-str { font-size: 16px; }
+body.header-size-small  #header-weather-mini { font-size: 18px; }
+
+body.header-size-medium #header { height: 80px; }
+body.header-size-medium #header-logo img { height: 52px; }
+body.header-size-medium #header-time { font-size: 30px; letter-spacing: 3px; }
+body.header-size-medium #header-date-str { font-size: 20px; }
+body.header-size-medium #header-weather-mini { font-size: 22px; }
+
+body.header-size-large  #header { height: 110px; }
+body.header-size-large  #header-logo img { height: 70px; }
+body.header-size-large  #header-time { font-size: 42px; letter-spacing: 4px; }
+body.header-size-large  #header-date-str { font-size: 26px; }
+body.header-size-large  #header-weather-mini { font-size: 28px; }
+
+body.header-size-xl     #header { height: 140px; }
+body.header-size-xl     #header-logo img { height: 90px; }
+body.header-size-xl     #header-time { font-size: 56px; letter-spacing: 5px; }
+body.header-size-xl     #header-date-str { font-size: 32px; }
+body.header-size-xl     #header-weather-mini { font-size: 36px; }
+#header-logo { display: flex; align-items: center; min-height: 0; }
+#header-logo:empty { display: none; }
+#header-logo img { height: 52px; width: auto; object-fit: contain; display: block; }
+#header-time { font-size: 30px; font-weight: 300; letter-spacing: 3px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#header-date-str { font-size: 20px; color: var(--text); font-weight: 300; letter-spacing: 1.5px; text-align: right; white-space: nowrap; }
+#header-weather-mini { font-size: 22px; color: var(--text); font-weight: 300; letter-spacing: 0.5px; white-space: nowrap; display: flex; align-items: center; gap: 8px; }
+#header-doors { display: flex; gap: 12px; align-items: center; }
+.door-chip { display: inline-flex; align-items: center; gap: 10px; padding: 8px 16px; border-radius: 999px;
+  border: 1px solid var(--card-border); background: var(--card-bg); font-variant-numeric: tabular-nums; line-height: 1.2; transition: border-color 0.3s, background 0.3s; }
+.door-chip .dot-led { width: 12px; height: 12px; border-radius: 50%; background: var(--subtext); flex-shrink: 0; }
+.door-chip .door-name { font-size: 14px; color: var(--text); font-weight: 400; letter-spacing: 0.5px; }
+.door-chip .door-state { font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600; }
+.door-chip.locked   .dot-led { background: #ff5050; box-shadow: 0 0 8px rgba(255,80,80,0.7); }
+.door-chip.locked   .door-state { color: #ff5050; }
+.door-chip.locked   { border-color: rgba(255,80,80,0.35); }
+.door-chip.unlocked .dot-led { background: #00dc64; box-shadow: 0 0 8px rgba(0,220,100,0.7); }
+.door-chip.unlocked .door-state { color: #00dc64; }
+.door-chip.unlocked { border-color: rgba(0,220,100,0.35); }
+.door-chip.open     .dot-led { background: #ffaa1a; box-shadow: 0 0 12px rgba(255,170,26,0.85); animation: door-pulse 1.4s ease-in-out infinite; }
+.door-chip.open     .door-state { color: #ffaa1a; }
+.door-chip.open { border-color: rgba(255,170,26,0.5); background: rgba(255,170,26,0.08); }
+@keyframes door-pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.85); } }
+
+/* DOTS */
+#zone-dots { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; z-index: 100; transition: bottom 0.3s; }
+body.has-ticker #zone-dots { bottom: 96px; }
+
+/* PERSISTENT MESSAGE TICKER (footer bar shown after a broadcast) */
+#message-ticker {
+  position: fixed; left: 0; right: 0; bottom: 0; height: 72px;
+  display: none; align-items: center; justify-content: center; gap: 16px; padding: 0 32px;
+  background: rgba(15,30,55,0.96); backdrop-filter: blur(14px);
+  border-top: 2px solid rgba(255,255,255,0.08); color: #fff;
+  z-index: 95; font-family: var(--font);
+  animation: ticker-in 0.4s ease-out;
+}
+body.has-ticker #message-ticker { display: flex; }
+/* Icon, message, and count all sit together in a single centered group so
+   they read as one unit instead of being pushed to the edges of the bar. */
+#ticker-icon { font-size: 32px; line-height: 1; flex-shrink: 0; }
+#ticker-content { display: flex; align-items: baseline; gap: 18px; min-width: 0; max-width: 70vw; }
+#ticker-body { font-size: 28px; font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#ticker-meta { font-size: 16px; color: rgba(255,255,255,0.7); white-space: nowrap; letter-spacing: 1.5px; text-transform: uppercase; flex-shrink: 0; }
+#ticker-count { font-size: 13px; color: rgba(255,255,255,0.7); padding: 4px 12px; border: 1px solid rgba(255,255,255,0.22); border-radius: 999px; flex-shrink: 0; }
+#ticker-count:empty { display: none; }
+#message-ticker.priority-urgent { background: rgba(150,20,20,0.96); border-top-color: rgba(255,80,80,0.4); }
+#message-ticker.priority-normal { background: rgba(15,80,40,0.96); border-top-color: rgba(0,220,100,0.35); }
+#message-ticker.priority-info   { background: rgba(15,30,55,0.96); border-top-color: rgba(88,166,255,0.35); }
+@keyframes ticker-in { from { transform: translateY(100%); } to { transform: translateY(0); } }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.25); transition: all 0.3s; cursor: pointer; }
+.dot.active { background: var(--accent); transform: scale(1.4); }
+
+/* ZONE SHARED */
+.zone { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: var(--header-pad) 60px 60px; opacity: 0; transition: opacity 0.8s ease; pointer-events: none; z-index: 10; }
+.zone.active { opacity: 1; pointer-events: auto; }
+.zone-title { font-size: 16px; text-transform: uppercase; letter-spacing: 4px; color: var(--accent); margin-bottom: 28px; display: flex; align-items: center; gap: 12px; }
+
+/* CLOCK */
+#zone-clock { background: radial-gradient(ellipse at 50% 40%, rgba(0,170,255,0.08) 0%, transparent 70%); }
+#clock-digital { display: flex; flex-direction: column; align-items: center; }
+#clock-big { font-size: clamp(120px, 18vw, 220px); font-weight: 100; letter-spacing: 8px; line-height: 1; background: linear-gradient(135deg, #fff 0%, var(--accent) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-variant-numeric: tabular-nums; }
+#clock-ampm { font-size: clamp(32px, 4vw, 56px); font-weight: 300; color: var(--accent); margin-left: 16px; align-self: flex-end; padding-bottom: 20px; }
+#clock-row { display: flex; align-items: baseline; }
+#clock-date-big { font-size: 28px; color: var(--subtext); margin-top: 20px; letter-spacing: 4px; text-transform: uppercase; }
+#clock-minimal { display: none; flex-direction: column; align-items: center; }
+#clock-minimal-time { font-size: clamp(160px, 22vw, 280px); font-weight: 100; letter-spacing: -4px; line-height: 0.9; color: #fff; font-variant-numeric: tabular-nums; }
+#clock-minimal-ampm { font-size: clamp(40px, 5vw, 72px); color: var(--subtext); margin-top: 8px; }
+#clock-minimal-date { font-size: 22px; color: var(--subtext); margin-top: 24px; letter-spacing: 6px; text-transform: uppercase; }
+#clock-analog { display: none; flex-direction: column; align-items: center; }
+#analog-svg { filter: drop-shadow(0 0 40px rgba(0,170,255,0.2)); width: 420px; height: 420px; }
+
+/* Clock sizing — applies to whichever style (digital/minimal/analog) is shown. */
+#zone-clock.size-small  #clock-big          { font-size: clamp(80px, 12vw, 140px); }
+#zone-clock.size-small  #clock-minimal-time { font-size: clamp(100px, 15vw, 180px); }
+#zone-clock.size-small  #analog-svg         { width: 280px; height: 280px; }
+#zone-clock.size-small  #clock-date-big, #zone-clock.size-small #clock-minimal-date, #zone-clock.size-small #clock-analog-date { font-size: 18px; }
+
+#zone-clock.size-medium #clock-big          { font-size: clamp(120px, 18vw, 220px); }
+#zone-clock.size-medium #clock-minimal-time { font-size: clamp(160px, 22vw, 280px); }
+#zone-clock.size-medium #analog-svg         { width: 420px; height: 420px; }
+
+#zone-clock.size-large  #clock-big          { font-size: clamp(170px, 24vw, 300px); }
+#zone-clock.size-large  #clock-minimal-time { font-size: clamp(200px, 28vw, 360px); }
+#zone-clock.size-large  #analog-svg         { width: 540px; height: 540px; }
+#zone-clock.size-large  #clock-date-big, #zone-clock.size-large #clock-minimal-date, #zone-clock.size-large #clock-analog-date { font-size: 36px; }
+
+#zone-clock.size-xl     #clock-big          { font-size: clamp(220px, 32vw, 420px); }
+#zone-clock.size-xl     #clock-minimal-time { font-size: clamp(260px, 36vw, 480px); }
+#zone-clock.size-xl     #analog-svg         { width: 680px; height: 680px; }
+#zone-clock.size-xl     #clock-date-big, #zone-clock.size-xl #clock-minimal-date, #zone-clock.size-xl #clock-analog-date { font-size: 42px; }
+#clock-analog-date { font-size: 24px; color: var(--subtext); margin-top: 28px; letter-spacing: 4px; text-transform: uppercase; }
+#clock-analog-digital { font-size: 32px; color: var(--accent); margin-top: 8px; letter-spacing: 4px; font-weight: 300; }
+
+/* WEATHER */
+#zone-weather { background: radial-gradient(ellipse at 30% 40%, rgba(255,200,50,0.07) 0%, transparent 70%); justify-content: center; gap: 0; }
+#weather-top { display: flex; flex-direction: column; align-items: center; width: 100%; }
+#weather-hero { display: flex; align-items: center; justify-content: center; gap: 24px; margin-bottom: 6px; }
+#weather-icon { font-size: 72px; line-height: 1; flex-shrink: 0; }
+#weather-temp { font-size: clamp(90px, 13vw, 150px); font-weight: 100; line-height: 1; background: linear-gradient(135deg, #fff 0%, var(--accent) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-variant-numeric: tabular-nums; }
+#weather-hero-meta { display: flex; flex-direction: column; justify-content: center; gap: 4px; }
+#weather-desc { font-size: 26px; color: var(--subtext); text-transform: capitalize; }
+#weather-location-el { font-size: 15px; color: var(--accent); letter-spacing: 3px; text-transform: uppercase; }
+#weather-hilorow { display: flex; gap: 18px; margin-top: 6px; }
+#weather-hilorow .hilo-item { display: flex; flex-direction: column; align-items: flex-start; }
+#weather-hilorow .hilo-val { font-size: 22px; font-weight: 300; line-height: 1.1; }
+#weather-hilorow .hilo-lbl { font-size: 10px; color: var(--subtext); text-transform: uppercase; letter-spacing: 1px; }
+#weather-details { display: flex; align-items: stretch; border: 1px solid var(--card-border); border-radius: 12px; overflow: hidden; margin: 20px 0 0; }
+.weather-detail { text-align: center; padding: 14px 32px; border-right: 1px solid var(--card-border); }
+.weather-detail:last-child { border-right: none; }
+.weather-detail .val { display: block; font-size: 20px; font-weight: 300; }
+.weather-detail .lbl { display: block; font-size: 10px; color: var(--subtext); margin-top: 4px; text-transform: uppercase; letter-spacing: 1px; }
+
+/* Weather sizing — small/medium/large/xl scales every weather element. */
+#zone-weather.size-small  #weather-icon { font-size: 50px; }
+#zone-weather.size-small  #weather-temp { font-size: clamp(60px, 9vw, 100px); }
+#zone-weather.size-small  #weather-desc { font-size: 18px; }
+#zone-weather.size-small  #weather-hilorow .hilo-val { font-size: 16px; }
+#zone-weather.size-small  .weather-detail .val { font-size: 16px; }
+#zone-weather.size-small  .weather-detail { padding: 10px 22px; }
+
+#zone-weather.size-medium #weather-icon { font-size: 72px; }
+#zone-weather.size-medium #weather-temp { font-size: clamp(90px, 13vw, 150px); }
+#zone-weather.size-medium #weather-desc { font-size: 26px; }
+#zone-weather.size-medium #weather-hilorow .hilo-val { font-size: 22px; }
+#zone-weather.size-medium .weather-detail .val { font-size: 20px; }
+
+#zone-weather.size-large  #weather-icon { font-size: 96px; }
+#zone-weather.size-large  #weather-temp { font-size: clamp(120px, 17vw, 200px); }
+#zone-weather.size-large  #weather-desc { font-size: 32px; }
+#zone-weather.size-large  #weather-hilorow .hilo-val { font-size: 28px; }
+#zone-weather.size-large  .weather-detail .val { font-size: 26px; }
+#zone-weather.size-large  .weather-detail { padding: 18px 40px; }
+
+#zone-weather.size-xl     #weather-icon { font-size: 130px; }
+#zone-weather.size-xl     #weather-temp { font-size: clamp(160px, 23vw, 280px); }
+#zone-weather.size-xl     #weather-desc { font-size: 40px; }
+#zone-weather.size-xl     #weather-hilorow .hilo-val { font-size: 36px; }
+#zone-weather.size-xl     .weather-detail .val { font-size: 32px; }
+#zone-weather.size-xl     .weather-detail { padding: 22px 50px; }
+#weather-forecast-section { display: none; width: 100%; margin-top: 28px; }
+#weather-forecast-section.visible { display: block; }
+#weather-forecast-label { font-size: 12px; text-transform: uppercase; letter-spacing: 5px; color: var(--subtext); margin-bottom: 14px; text-align: center; }
+#weather-forecast { display: flex; gap: 16px; justify-content: center; }
+.fc-day { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 16px 28px; text-align: center; min-width: 120px; }
+.fc-day .fc-name { font-size: 12px; color: var(--subtext); text-transform: uppercase; letter-spacing: 2px; }
+.fc-day .fc-icon { font-size: 30px; margin: 8px 0; }
+.fc-day .fc-hi { font-size: 22px; font-weight: 300; }
+.fc-day .fc-lo { font-size: 13px; color: var(--subtext); margin-top: 3px; }
+
+/* SHIPMENTS */
+#zone-shipments { background: radial-gradient(ellipse at 70% 40%, rgba(0,255,150,0.06) 0%, transparent 70%); justify-content: center; padding-top: var(--header-pad); }
+#zone-shipments .zone-title { position: absolute; top: calc(var(--header-pad) + 10px); left: 50%; transform: translateX(-50%); align-self: auto !important; margin-bottom: 0; text-align: center; }
+/* table-layout:auto lets columns shrink to content; nowrap on every column
+   except Notes keeps each row to a single line. Notes is the only column
+   allowed to wrap (and only as a last resort if the row gets very long). */
+#shipments-table { width: 100%; max-width: 1500px; border-collapse: collapse; table-layout: auto; }
+#shipments-table th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: var(--subtext); padding: 10px 18px; border-bottom: 1px solid var(--card-border); white-space: nowrap; }
+#shipments-table td { padding: 16px 18px; font-size: 20px; border-bottom: 1px solid rgba(255,255,255,0.05); white-space: nowrap; }
+/* Items + Notes columns are the variable-width ones; let them be the only
+   ones that wrap if absolutely necessary. */
+#shipments-table th:nth-child(3),
+#shipments-table th:nth-child(6),
+#shipments-table td:nth-child(3),
+#shipments-table td:nth-child(6) { white-space: normal; }
+.status-badge { display: inline-block; padding: 3px 12px; border-radius: 20px; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
+.status-incoming  { background: rgba(0,170,255,0.2);  color: #00aaff; border: 1px solid rgba(0,170,255,0.4); }
+.status-arriving  { background: rgba(255,200,0,0.2);  color: #ffc800; border: 1px solid rgba(255,200,0,0.4); }
+.status-delivered { background: rgba(0,220,100,0.2);  color: #00dc64; border: 1px solid rgba(0,220,100,0.4); }
+.status-delayed   { background: rgba(255,80,80,0.2);  color: #ff5050; border: 1px solid rgba(255,80,80,0.4); }
+#shipments-updated { font-size: 12px; color: var(--subtext); margin-top: 16px; align-self: flex-start; padding-left: 8px; }
+
+/* MESSAGES — list every active message stacked, newest on top */
+#zone-slack { background: radial-gradient(ellipse at 50% 60%, rgba(100,50,200,0.08) 0%, transparent 70%); justify-content: center; padding-top: var(--header-pad); }
+#zone-slack #slack-header { position: absolute; top: calc(var(--header-pad) + 10px); left: 50%; transform: translateX(-50%); margin-bottom: 0; text-align: center; }
+#slack-header { display: flex; align-items: center; gap: 16px; margin-bottom: 28px; }
+#slack-message-display { width: 100%; max-width: 1200px; }
+#slack-content { display: flex; flex-direction: column; gap: 16px; max-height: 70vh; overflow-y: auto; padding-right: 4px; }
+.slack-msg { padding: 18px 24px; border-radius: 12px; border-left: 4px solid var(--accent); background: var(--card-bg); border: 1px solid var(--card-border); border-left-width: 4px; }
+.slack-msg.prio-urgent { border-left-color: #ff5050; background: rgba(255,80,80,0.06); }
+.slack-msg.prio-normal { border-left-color: #00dc64; background: rgba(0,220,100,0.05); }
+.slack-msg.prio-info   { border-left-color: var(--accent); }
+.slack-msg-head { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; margin-bottom: 10px; }
+.slack-msg-sender { font-size: 14px; color: var(--accent); letter-spacing: 2px; text-transform: uppercase; }
+.slack-msg-time { font-size: 13px; color: var(--subtext); white-space: nowrap; }
+.slack-msg-body { font-size: clamp(22px, 2.4vw, 34px); font-weight: 300; line-height: 1.4; color: var(--text); white-space: pre-wrap; word-break: break-word; }
+#slack-empty { font-size: 28px; color: var(--subtext); font-weight: 200; text-align: center; padding: 40px; }
+#slack-msg-count { font-size: 13px; color: var(--subtext); margin-top: 20px; align-self: flex-end; }
+
+/* KPI */
+#zone-kpi { background: radial-gradient(ellipse at 50% 30%, rgba(255,107,53,0.07) 0%, transparent 70%); justify-content: center; padding-top: var(--header-pad); }
+#zone-kpi .zone-title { position: absolute; top: calc(var(--header-pad) + 10px); left: 50%; transform: translateX(-50%); align-self: auto !important; margin-bottom: 0; text-align: center; }
+#kpi-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 32px; width: 100%; max-width: 1700px; }
+.kpi-card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 20px; padding: 56px 40px; text-align: center; min-height: 220px; display: flex; flex-direction: column; justify-content: center; gap: 14px; }
+.kpi-val { font-size: clamp(80px, 9vw, 130px); font-weight: 100; color: var(--accent); line-height: 1; font-variant-numeric: tabular-nums; }
+.kpi-label { font-size: 18px; color: var(--subtext); text-transform: uppercase; letter-spacing: 3px; margin-top: 0; }
+
+/* SAFETY / MOTIVATION */
+#zone-safety { background: radial-gradient(ellipse at 40% 50%, rgba(255,200,0,0.06) 0%, transparent 70%); }
+#safety-icon { font-size: 72px; margin-bottom: 20px; }
+#safety-label { font-size: 13px; text-transform: uppercase; letter-spacing: 4px; color: #ffc800; margin-bottom: 28px; }
+#safety-text { font-size: clamp(40px, 5.5vw, 78px); font-weight: 200; text-align: center; max-width: 900px; line-height: 1.3; }
+#zone-motivation { background: radial-gradient(ellipse at 60% 40%, rgba(0,200,180,0.06) 0%, transparent 70%); }
+#quote-mark { font-size: 130px; line-height: 0.5; color: var(--accent); opacity: 0.25; align-self: flex-start; margin-left: 80px; font-family: Georgia, serif; }
+#motivation-text { font-size: clamp(36px, 4.8vw, 68px); font-weight: 200; text-align: center; max-width: 960px; line-height: 1.4; font-style: italic; }
+#motivation-author { font-size: 20px; color: var(--accent); margin-top: 28px; letter-spacing: 3px; }
+
+/* CAMERAS */
+#zone-doors { background: var(--bg); justify-content: center; align-items: stretch; padding: var(--header-pad) 0 0; overflow: hidden; }
+/* 6 columns wide; rows auto-grow to fit every cell. minmax(0, 1fr) lets
+   the rows stretch evenly to fill the zone height. */
+#camera-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); width: 100%; height: 100%; gap: 2px; background: rgba(0,0,0,0.5); align-content: stretch; }
+.cam-cell { position: relative; overflow: hidden; background: rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center; }
+/* object-fit: contain preserves the camera's true aspect ratio — no
+   stretching for portrait doorbell cams. The cell background fills any gap. */
+.cam-cell img { max-width: 100%; max-height: 100%; width: auto; height: auto; display: block; object-fit: contain; }
+.cam-cell.shape-wide   { grid-column: span 2; grid-row: span 1; }
+.cam-cell.shape-tall   { grid-column: span 1; grid-row: span 2; }
+.cam-cell.shape-square { grid-column: span 1; grid-row: span 1; }
+.cam-cell.shape-large  { grid-column: span 3; grid-row: span 2; }
+.cam-cell .cam-label { position: absolute; bottom: 4px; left: 6px; background: rgba(0,0,0,0.55); color: #fff; font-size: 10px; padding: 1px 6px; border-radius: 3px; letter-spacing: 0.5px; pointer-events: none; }
+#cam-updated { position: absolute; bottom: 8px; right: 12px; font-size: 11px; color: rgba(255,255,255,0.35); z-index: 10; pointer-events: none; }
+
+/* SPORTS — title pinned at top, leagues vertically centered in remaining space */
+#zone-sports, #zone-sports-results, #zone-sports-upcoming {
+  background: radial-gradient(ellipse at 50% 40%, rgba(255,107,53,0.07) 0%, transparent 70%);
+  justify-content: center;            /* center the league stack vertically */
+  padding-top: var(--header-pad);
+  align-items: center;
+}
+#zone-sports .zone-title,
+#zone-sports-results .zone-title,
+#zone-sports-upcoming .zone-title { position: absolute; top: calc(var(--header-pad) + 10px); left: 50%; transform: translateX(-50%); align-self: auto !important; margin-bottom: 0; text-align: center; }
+#sports-results-updated, #sports-upcoming-updated { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); font-size: 12px; color: var(--subtext); margin-top: 0; padding-left: 0; align-self: auto; }
+#sports-leagues, #sports-results-leagues, #sports-upcoming-leagues {
+  display: flex; flex-direction: column; gap: 38px;   /* big gap between leagues */
+  width: 100%; max-width: 1600px;
+  max-height: calc(100vh - 220px); overflow-y: auto;
+}
+.sports-league-title { font-size: 16px; text-transform: uppercase; letter-spacing: 3px; color: var(--accent); margin-bottom: 18px; display: flex; align-items: center; gap: 12px; justify-content: center; font-weight: 500; min-height: 96px; }
+.sports-league-title .league-logo { height: 96px; width: auto; max-width: 280px; object-fit: contain; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.4)); }
+.layout-auto-xl .sports-league-title,
+.layout-hero    .sports-league-title { min-height: 144px; margin-bottom: 24px; }
+.layout-auto-xl .sports-league-title .league-logo,
+.layout-hero    .sports-league-title .league-logo { height: 144px; }
+.layout-auto-lg .sports-league-title,
+.layout-large   .sports-league-title { min-height: 120px; }
+.layout-auto-lg .sports-league-title .league-logo,
+.layout-large   .sports-league-title .league-logo { height: 120px; }
+.layout-auto-sm .sports-league-title,
+.layout-compact .sports-league-title { min-height: 64px; margin-bottom: 12px; }
+.layout-auto-sm .sports-league-title .league-logo,
+.layout-compact .sports-league-title .league-logo { height: 64px; }
+.sports-games { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+.sports-game { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 14px 18px; flex: 1 1 180px; max-width: 260px; transition: padding 0.2s, max-width 0.2s; }
+.sports-game.live-game { border-color: rgba(255,68,68,0.5); box-shadow: 0 0 14px rgba(255,68,68,0.15); }
+.sports-game-status { font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 8px; }
+.sports-game-status.live { color: #ff4444; animation: blink 1.5s ease infinite; }
+.sports-game-status.final { color: var(--subtext); }
+.sports-game-status.upcoming { color: var(--accent); }
+@keyframes blink { 0%,100%{opacity:1}50%{opacity:0.5} }
+.sports-teams { display: flex; flex-direction: column; gap: 6px; }
+.sports-team { display: flex; align-items: center; gap: 8px; font-size: 16px; opacity: 0.55; }
+.sports-team.winner { opacity: 1; }
+.sports-team-name { flex: 1; font-weight: 500; }
+.sports-team-score { font-size: 20px; font-weight: 200; color: var(--subtext); min-width: 30px; text-align: right; }
+.sports-team-score.win { color: #fff; font-weight: 500; }
+.sports-odds { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.08); display: flex; gap: 10px; flex-wrap: wrap; font-size: 11px; color: var(--subtext); letter-spacing: 0.5px; }
+.sports-odds .odds-spread { color: #ffaa1a; font-weight: 600; }
+.sports-odds .odds-ou { color: var(--subtext); }
+
+/* Sports layout — flex with justify-content:center so any partial row sits
+   centered in the page instead of left-aligning to an empty column.
+   flex-basis per layout sets the tile width; grow:0 keeps tiles uniform. */
+.sports-games { display: flex !important; flex-wrap: wrap; gap: 16px; justify-content: center; }
+.sports-game  { flex: 0 0 auto !important; box-sizing: border-box; max-width: none !important; }
+
+/* Auto layout — tile width picked from total game count. */
+.layout-auto-xl .sports-games { gap: 28px; }
+.layout-auto-xl .sports-game  { width: 460px; padding: 28px 32px; }
+.layout-auto-xl .sports-team { font-size: 26px; }
+.layout-auto-xl .sports-team-score { font-size: 36px; min-width: 50px; }
+.layout-auto-xl .sports-game-status { font-size: 14px; margin-bottom: 14px; }
+
+.layout-auto-lg .sports-games { gap: 22px; }
+.layout-auto-lg .sports-game  { width: 360px; padding: 22px 26px; }
+.layout-auto-lg .sports-team { font-size: 20px; }
+.layout-auto-lg .sports-team-score { font-size: 28px; min-width: 42px; }
+.layout-auto-lg .sports-game-status { font-size: 12px; margin-bottom: 12px; }
+
+.layout-auto-md .sports-games { gap: 16px; }
+.layout-auto-md .sports-game  { width: 280px; padding: 16px 20px; }
+.layout-auto-md .sports-team { font-size: 17px; }
+.layout-auto-md .sports-team-score { font-size: 22px; }
+
+.layout-auto-sm .sports-games { gap: 10px; }
+.layout-auto-sm .sports-game  { width: 200px; padding: 10px 12px; }
+.layout-auto-sm .sports-team { font-size: 13px; gap: 6px; }
+.layout-auto-sm .sports-team img { width: 22px !important; height: 22px !important; }
+.layout-auto-sm .sports-team-score { font-size: 16px; min-width: 24px; }
+.layout-auto-sm .sports-game-status { font-size: 9px; margin-bottom: 6px; }
+
+/* Explicit layouts — admin force-picks a tile size regardless of count. */
+.layout-hero    .sports-games { gap: 30px; }
+.layout-hero    .sports-game  { width: 520px; padding: 32px 36px; }
+.layout-hero    .sports-team { font-size: 30px; }
+.layout-hero    .sports-team-score { font-size: 42px; min-width: 56px; }
+.layout-hero    .sports-game-status { font-size: 16px; margin-bottom: 16px; }
+
+.layout-large   .sports-games { gap: 22px; }
+.layout-large   .sports-game  { width: 360px; padding: 22px 26px; }
+.layout-large   .sports-team { font-size: 20px; }
+.layout-large   .sports-team-score { font-size: 28px; min-width: 42px; }
+
+.layout-standard .sports-games { gap: 16px; }
+.layout-standard .sports-game  { width: 280px; padding: 16px 20px; }
+.layout-standard .sports-team { font-size: 17px; }
+.layout-standard .sports-team-score { font-size: 22px; }
+
+.layout-compact .sports-games { gap: 10px; }
+.layout-compact .sports-game  { width: 200px; padding: 10px 12px; }
+.layout-compact .sports-team { font-size: 13px; gap: 6px; }
+.layout-compact .sports-team img { width: 22px !important; height: 22px !important; }
+.layout-compact .sports-team-score { font-size: 16px; min-width: 24px; }
+.layout-compact .sports-game-status { font-size: 9px; margin-bottom: 6px; }
+
+/* TRENDS */
+#zone-trends { background: radial-gradient(ellipse at 50% 35%, rgba(88,166,255,0.08) 0%, transparent 70%); justify-content: center; padding-top: var(--header-pad); align-items: center; }
+#zone-trends .zone-title { position: absolute; top: calc(var(--header-pad) + 10px); left: 50%; transform: translateX(-50%); align-self: auto !important; margin-bottom: 0; text-align: center; }
+#trends-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; width: 100%; max-width: 1300px; }
+.trend-col { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 14px; padding: 18px 20px; min-height: 460px; }
+.trend-col-title { font-size: 13px; text-transform: uppercase; letter-spacing: 3px; color: var(--accent); margin-bottom: 14px; font-weight: 500; }
+.trend-item { padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 16px; line-height: 1.35; display: flex; gap: 12px; }
+.trend-item:last-child { border-bottom: none; }
+.trend-rank { flex-shrink: 0; font-size: 13px; color: var(--accent); font-weight: 600; min-width: 22px; }
+.trend-empty { color: var(--subtext); font-size: 14px; padding: 20px 0; text-align: center; }
+#trends-updated { font-size: 12px; color: var(--subtext); margin-top: 16px; }
+
+/* Optional inline world-clocks row inside the main Clock zone */
+#clock-worldclocks-row { display: none; gap: 14px; margin-top: 36px; flex-wrap: wrap; justify-content: center; max-width: 1200px; }
+#clock-worldclocks-row.visible { display: flex; }
+.cwr-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 8px 14px; text-align: center; min-width: 110px; }
+.cwr-label { font-size: 10px; text-transform: uppercase; letter-spacing: 2px; color: var(--accent); margin-bottom: 2px; }
+.cwr-time { font-size: 20px; font-weight: 300; font-variant-numeric: tabular-nums; }
+
+/* WORLD CLOCKS — dotted-map layout. The SVG keeps its aspect with
+   preserveAspectRatio="meet"; we size the wrapper so the overlay (where
+   pins live) sits exactly over the rendered map area. */
+#zone-worldclocks { background: var(--bg); padding: 0; justify-content: center; align-items: center; }
+#worldclocks-mapwrap {
+  position: relative;
+  width: 100%; max-width: 1600px;
+  aspect-ratio: 1000 / 394;
+  /* Keep the map readable on tall screens by capping height at 80% viewport */
+  max-height: 80vh;
+  margin: 0 auto;
+}
+#worldclocks-map { width: 100%; height: 100%; display: block; }
+#worldclocks-overlay { position: absolute; inset: 0; }
+.wc-pin {
+  position: absolute; transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.wc-pin .dot {
+  width: 12px; height: 12px; border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 16px var(--accent), 0 0 4px rgba(255,255,255,0.4);
+  margin: 0 auto;
+}
+.wc-pin .pulse {
+  position: absolute; left: 50%; top: 0; transform: translate(-50%, 0);
+  width: 12px; height: 12px; border-radius: 50%;
+  background: transparent; border: 2px solid var(--accent);
+  animation: wcPulse 2s ease-out infinite;
+}
+@keyframes wcPulse {
+  0%   { transform: translate(-50%, 0) scale(1); opacity: 0.7; }
+  100% { transform: translate(-50%, 0) scale(2.5); opacity: 0; }
+}
+.wc-card {
+  position: absolute; transform: translate(-50%, calc(-100% - 16px));
+  background: rgba(15,25,45,0.92); border: 1px solid rgba(120,160,220,0.4);
+  backdrop-filter: blur(10px);
+  border-radius: 10px; padding: 8px 14px; text-align: center;
+  min-width: 110px; pointer-events: none;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+}
+.wc-card .label { font-size: 10px; text-transform: uppercase; letter-spacing: 2px; color: var(--accent); margin-bottom: 4px; display: flex; align-items: center; justify-content: center; gap: 4px; }
+.wc-card .time { font-size: 22px; font-weight: 300; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.wc-card .date { font-size: 11px; color: var(--subtext); margin-top: 2px; }
+.wc-card::after {
+  content: ''; position: absolute; bottom: -7px; left: 50%; transform: translateX(-50%);
+  width: 0; height: 0; border: 7px solid transparent;
+  border-top-color: rgba(120,160,220,0.4);
+}
+/* World-clock card sizing — small/medium/large via per-screen config. */
+#zone-worldclocks.size-small  .wc-card { padding: 6px 10px; min-width: 90px; }
+#zone-worldclocks.size-small  .wc-card .label { font-size: 9px; }
+#zone-worldclocks.size-small  .wc-card .time  { font-size: 16px; }
+#zone-worldclocks.size-small  .wc-card .date  { font-size: 10px; }
+
+#zone-worldclocks.size-medium .wc-card .time  { font-size: 22px; }   /* current default */
+
+#zone-worldclocks.size-large  .wc-card { padding: 12px 18px; min-width: 140px; }
+#zone-worldclocks.size-large  .wc-card .label { font-size: 12px; }
+#zone-worldclocks.size-large  .wc-card .time  { font-size: 30px; }
+#zone-worldclocks.size-large  .wc-card .date  { font-size: 13px; }
+
+/* Card placement override — flip below dot when class added (task: avoid overlap) */
+.wc-card.below { transform: translate(-50%, calc(100% + 16px)); }
+.wc-card.below::after { top: -7px; bottom: auto; border-top-color: transparent; border-bottom-color: rgba(120,160,220,0.4); }
+.wc-card.right { transform: translate(16px, -50%); left: auto; }
+.wc-card.right::after { left: -7px; top: 50%; bottom: auto; transform: translateY(-50%); border-top-color: transparent; border-right-color: rgba(120,160,220,0.4); }
+.wc-card.left  { transform: translate(calc(-100% - 16px), -50%); }
+.wc-card.left::after { right: -7px; left: auto; top: 50%; bottom: auto; transform: translateY(-50%); border-top-color: transparent; border-left-color: rgba(120,160,220,0.4); }
+
+/* SUN ARC — fits a 16:9 viewport without scrolling. Sized so the arc + meta
+   row + 3-day forecast all fit between the 80px header and the page bottom
+   on a typical 1920×1080 screen. */
+#zone-sunarc {
+  background: var(--bg);
+  background-image: linear-gradient(180deg, rgba(60,140,255,0.08) 0%, transparent 50%, rgba(255,120,40,0.08) 100%);
+  justify-content: center; padding-top: var(--header-pad); padding-bottom: 32px; gap: 18px;
+}
+#sunarc-title { font-size: 16px; text-transform: uppercase; letter-spacing: 4px; color: var(--accent); margin-bottom: 0; }
+#sunarc-wrap { width: 100%; }
+#sunarc-svg { width: 100%; height: 100%; }
+#sunarc-meta { display: flex; flex-wrap: wrap; justify-content: center; margin-top: 0; }
+#sunarc-meta .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: 3px; color: var(--subtext); display: block; margin-bottom: 4px; }
+#sunarc-meta .val { font-weight: 300; }
+#sunarc-forecast { display: flex; flex-wrap: wrap; justify-content: center; margin-top: 0; }
+.sa-day { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; text-align: center; }
+.sa-day .sa-day-name { color: var(--subtext); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 4px; }
+.sa-day .sa-day-len  { font-weight: 300; color: var(--text); margin-bottom: 2px; }
+.sa-day .sa-day-rise { color: var(--subtext); }
+
+/* Sun arc sizing — drives arc height, meta type, and 3-day forecast cards. */
+#zone-sunarc.size-small  #sunarc-wrap { max-width: 800px;  height: clamp(180px, 28vh, 320px); }
+#zone-sunarc.size-small  #sunarc-meta { gap: 36px; }
+#zone-sunarc.size-small  #sunarc-meta .val { font-size: 22px; }
+#zone-sunarc.size-small  #sunarc-forecast { gap: 12px; }
+#zone-sunarc.size-small  .sa-day { padding: 8px 16px; min-width: 100px; }
+#zone-sunarc.size-small  .sa-day .sa-day-name { font-size: 9px; }
+#zone-sunarc.size-small  .sa-day .sa-day-len  { font-size: 16px; }
+#zone-sunarc.size-small  .sa-day .sa-day-rise { font-size: 10px; }
+
+#zone-sunarc.size-medium #sunarc-wrap { max-width: 1100px; height: clamp(260px, 38vh, 460px); }
+#zone-sunarc.size-medium #sunarc-meta { gap: 56px; }
+#zone-sunarc.size-medium #sunarc-meta .val { font-size: clamp(22px, 3vh, 30px); }
+#zone-sunarc.size-medium #sunarc-forecast { gap: 16px; }
+#zone-sunarc.size-medium .sa-day { padding: 12px 22px; min-width: 140px; }
+#zone-sunarc.size-medium .sa-day .sa-day-name { font-size: 10px; }
+#zone-sunarc.size-medium .sa-day .sa-day-len  { font-size: clamp(18px, 2.4vh, 22px); }
+#zone-sunarc.size-medium .sa-day .sa-day-rise { font-size: 11px; }
+
+#zone-sunarc.size-large  #sunarc-wrap { max-width: 1500px; height: clamp(340px, 48vh, 600px); }
+#zone-sunarc.size-large  #sunarc-meta { gap: 80px; }
+#zone-sunarc.size-large  #sunarc-meta .val { font-size: clamp(30px, 4vh, 42px); }
+#zone-sunarc.size-large  #sunarc-forecast { gap: 22px; }
+#zone-sunarc.size-large  .sa-day { padding: 18px 30px; min-width: 180px; }
+#zone-sunarc.size-large  .sa-day .sa-day-name { font-size: 12px; }
+#zone-sunarc.size-large  .sa-day .sa-day-len  { font-size: clamp(24px, 3vh, 32px); }
+#zone-sunarc.size-large  .sa-day .sa-day-rise { font-size: 14px; }
+
+#zone-sunarc.size-xl     #sunarc-wrap { max-width: 1800px; height: clamp(420px, 58vh, 720px); }
+#zone-sunarc.size-xl     #sunarc-meta { gap: 100px; }
+#zone-sunarc.size-xl     #sunarc-meta .val { font-size: clamp(40px, 5vh, 56px); }
+#zone-sunarc.size-xl     #sunarc-forecast { gap: 28px; }
+#zone-sunarc.size-xl     .sa-day { padding: 24px 40px; min-width: 220px; }
+#zone-sunarc.size-xl     .sa-day .sa-day-name { font-size: 14px; }
+#zone-sunarc.size-xl     .sa-day .sa-day-len  { font-size: clamp(32px, 4vh, 44px); }
+#zone-sunarc.size-xl     .sa-day .sa-day-rise { font-size: 17px; }
+
+/* MEETING ROOMS — title pinned at top, tiles vertically centered in remaining space */
+#zone-meetings { background: radial-gradient(ellipse at 50% 40%, rgba(0,170,255,0.06) 0%, transparent 70%); justify-content: center; padding-top: var(--header-pad); }
+#zone-meetings .zone-title { position: absolute; top: calc(var(--header-pad) + 10px); left: 50%; transform: translateX(-50%); align-self: auto !important; margin-bottom: 0; text-align: center; }
+#meetings-grid { width: 100%; max-width: 1500px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+.room-tile { padding: 36px 28px; border-radius: 18px; border: 2px solid var(--card-border); background: var(--card-bg); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; min-height: 200px; transition: all 0.3s; }
+.room-tile .room-name { font-size: 26px; font-weight: 300; color: var(--text); letter-spacing: 1px; text-align: center; }
+.room-tile .room-state { font-size: 28px; font-weight: 700; letter-spacing: 4px; text-transform: uppercase; }
+.room-tile .room-detail { font-size: 14px; color: var(--subtext); letter-spacing: 1px; min-height: 18px; }
+.room-tile.free { border-color: rgba(0,220,100,0.5); background: rgba(0,220,100,0.08); box-shadow: 0 0 28px rgba(0,220,100,0.12); }
+.room-tile.free .room-state { color: #00dc64; }
+.room-tile.soon { border-color: rgba(255,170,26,0.55); background: rgba(255,170,26,0.10); box-shadow: 0 0 28px rgba(255,170,26,0.18); }
+.room-tile.soon .room-state { color: #ffaa1a; }
+.room-tile.busy { border-color: rgba(255,80,80,0.55); background: rgba(255,80,80,0.12); box-shadow: 0 0 28px rgba(255,80,80,0.20); }
+.room-tile.busy .room-state { color: #ff5050; }
+.room-tile.unconfigured, .room-tile.error { opacity: 0.4; }
+.room-tile.unconfigured .room-state, .room-tile.error .room-state { color: var(--subtext); font-size: 14px; letter-spacing: 2px; font-weight: 400; }
+#meetings-updated { font-size: 11px; color: var(--subtext); margin-top: 18px; align-self: center; text-align: center; }
+
+/* CALENDAR — title pinned at top, list vertically centered */
+#zone-calendar { background: radial-gradient(ellipse at 50% 35%, rgba(0,200,180,0.06) 0%, transparent 70%); justify-content: center; padding-top: var(--header-pad); }
+#zone-calendar .zone-title { position: absolute; top: calc(var(--header-pad) + 10px); left: 50%; transform: translateX(-50%); align-self: auto !important; margin-bottom: 0; text-align: center; }
+#calendar-list { width: 100%; max-width: 1100px; display: flex; flex-direction: column; gap: 12px; }
+.cal-event { display: grid; grid-template-columns: 90px 1fr auto; gap: 18px; align-items: center; padding: 14px 18px; background: var(--card-bg); border: 1px solid var(--card-border); border-left-width: 4px; border-radius: 10px; }
+.cal-event.today { border-left-color: var(--accent); background: rgba(88,166,255,0.06); }
+.cal-event-day { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--subtext); text-align: center; line-height: 1.4; }
+.cal-event-day .num { font-size: 28px; font-weight: 200; color: var(--text); display: block; }
+.cal-event-summary { font-size: 18px; line-height: 1.3; }
+.cal-event-meta { font-size: 12px; color: var(--subtext); margin-top: 4px; }
+.cal-event-time { font-size: 14px; color: var(--accent); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* BIG NUMBER */
+#zone-bignum { background: radial-gradient(ellipse at 50% 40%, rgba(88,166,255,0.08) 0%, transparent 70%); }
+#bignum-label { font-size: 18px; text-transform: uppercase; letter-spacing: 6px; color: var(--accent); margin-bottom: 32px; }
+#bignum-row { display: flex; align-items: baseline; gap: 18px; }
+#bignum-value { font-weight: 100; line-height: 1; background: linear-gradient(135deg, #fff 0%, var(--accent) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-variant-numeric: tabular-nums; }
+#bignum-unit { font-weight: 200; color: var(--subtext); }
+#bignum-subline { color: var(--subtext); margin-top: 32px; max-width: 900px; text-align: center; }
+
+/* Today's Number — size scales set via per-screen config */
+#zone-bignum.size-small  #bignum-label { font-size: 14px; margin-bottom: 22px; }
+#zone-bignum.size-small  #bignum-value { font-size: clamp(100px, 14vw, 180px); }
+#zone-bignum.size-small  #bignum-unit  { font-size: clamp(28px, 4vw, 50px); }
+#zone-bignum.size-small  #bignum-subline { font-size: 16px; margin-top: 20px; }
+
+#zone-bignum.size-medium #bignum-label { font-size: 16px; margin-bottom: 28px; }
+#zone-bignum.size-medium #bignum-value { font-size: clamp(140px, 20vw, 260px); }
+#zone-bignum.size-medium #bignum-unit  { font-size: clamp(34px, 5vw, 64px); }
+#zone-bignum.size-medium #bignum-subline { font-size: 19px; margin-top: 26px; }
+
+#zone-bignum.size-large  #bignum-label { font-size: 18px; margin-bottom: 32px; }
+#zone-bignum.size-large  #bignum-value { font-size: clamp(180px, 26vw, 360px); }
+#zone-bignum.size-large  #bignum-unit  { font-size: clamp(40px, 6vw, 80px); }
+#zone-bignum.size-large  #bignum-subline { font-size: 22px; margin-top: 32px; }
+
+#zone-bignum.size-xl     #bignum-label { font-size: 22px; margin-bottom: 38px; letter-spacing: 8px; }
+#zone-bignum.size-xl     #bignum-value { font-size: clamp(240px, 34vw, 480px); }
+#zone-bignum.size-xl     #bignum-unit  { font-size: clamp(50px, 8vw, 110px); }
+#zone-bignum.size-xl     #bignum-subline { font-size: 26px; margin-top: 40px; max-width: 1200px; }
+
+/* TRENDS — redesigned */
+#trends-wrap { display: grid; grid-template-columns: 1.4fr 1fr; gap: 24px; }
+.trend-col { padding: 22px 24px; }
+.trend-col-title { letter-spacing: 4px; }
+/* Hero card for the top headline */
+.trend-hero { background: linear-gradient(135deg, rgba(88,166,255,0.12), rgba(88,166,255,0.04)); border: 1px solid rgba(88,166,255,0.3); border-radius: 12px; padding: 18px; margin: 8px 0 14px; }
+.trend-hero .label { font-size: 10px; letter-spacing: 3px; text-transform: uppercase; color: var(--accent); margin-bottom: 8px; }
+.trend-hero .title { font-size: 22px; font-weight: 500; line-height: 1.3; margin-bottom: 6px; }
+.trend-hero .src   { font-size: 12px; color: var(--subtext); }
+.trend-item { padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.06); animation: trendFadeIn 0.4s ease both; }
+@keyframes trendFadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.trend-item:last-child { border-bottom: none; }
+.trend-rank { color: var(--accent); font-weight: 600; min-width: 22px; }
+
+/* RADAR + TRAFFIC */
+#zone-radar, #zone-traffic { background: var(--bg); justify-content: center; padding: var(--header-pad) 40px 70px; }
+#zone-radar #radar-title, #zone-traffic #traffic-title { position: absolute; top: calc(var(--header-pad) + 10px); left: 50%; transform: translateX(-50%); align-self: auto !important; margin-bottom: 0; text-align: center; }
+
+/* SLIDES — full-bleed Google Slides iframe */
+#zone-slides { background: #000; padding: 80px 0 0; align-items: stretch; justify-content: stretch; }
+#zone-slides #slides-iframe { width: 100%; height: 100%; border: 0; background: #000; display: block; }
+#zone-slides #slides-empty { display: none; align-self: center; justify-self: center; margin: auto; color: var(--subtext); font-size: 22px; padding: 24px; }
+#zone-slides.no-slides #slides-iframe { display: none; }
+#zone-slides.no-slides #slides-empty { display: block; }
+#radar-title, #traffic-title { font-size: 16px; text-transform: uppercase; letter-spacing: 4px; color: var(--accent); margin-bottom: 14px; display: flex; align-items: center; gap: 12px; }
+#radar-map-wrap, #traffic-map-wrap {
+  position: relative; width: 100%; max-width: 1400px;
+  height: 70vh; max-height: 820px; min-height: 420px;
+  border-radius: 12px; overflow: hidden;
+  border: 1px solid var(--card-border);
+  /* Slightly darker than the zone bg so the map container reads as a panel,
+     but tinted by --bg so it works with any user-picked theme. */
+  background: rgba(0,0,0,0.35);
+}
+#radar-map, #traffic-map { width: 100%; height: 100%; }
+#radar-meta, #traffic-meta { font-size: 13px; color: var(--subtext); margin-top: 14px; }
+
+/* OVERLAYS */
+#camera-overlay { position: fixed; inset: 0; background: #000; z-index: 500; display: none; flex-direction: column; align-items: center; justify-content: center; }
+#camera-overlay.active { display: flex; }
+#camera-alert-banner { position: absolute; top: 0; left: 0; right: 0; background: linear-gradient(90deg, #ff3300, #ff6b35); padding: 14px 48px; display: flex; align-items: center; gap: 20px; font-size: 22px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; animation: pulse-banner 1s ease infinite alternate; }
+@keyframes pulse-banner { from { opacity: 1; } to { opacity: 0.7; } }
+.alert-icon { font-size: 28px; animation: spin 2s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+#camera-feed-area { width: 90%; max-width: 1400px; aspect-ratio: 16/9; background: #111; border: 2px solid #ff3300; border-radius: 8px; display: flex; align-items: center; justify-content: center; overflow: hidden; margin-top: 72px; }
+#camera-feed-area iframe { width: 100%; height: 100%; border: none; }
+#camera-feed-area video  { width: 100%; height: 100%; object-fit: contain; background: #000; }
+#camera-placeholder { text-align: center; color: var(--subtext); }
+#camera-placeholder .cam-icon { font-size: 72px; margin-bottom: 16px; }
+
+/* Door change popup — full-page opaque overlay for 5s on lock/position change.
+   The radial gradient is just an accent on top of a solid black backdrop so
+   the page underneath is fully hidden. */
+#door-overlay { position: fixed; inset: 0; background: #000; z-index: 600; display: none; flex-direction: column; align-items: center; justify-content: center; padding: 80px; gap: 24px; transition: background 0.3s; }
+#door-overlay.active { display: flex; animation: door-overlay-in 0.4s ease-out; }
+#door-overlay.state-locked   { background: #000 radial-gradient(ellipse at center, rgba(140,20,20,0.85) 0%, #000 65%); }
+#door-overlay.state-unlocked { background: #000 radial-gradient(ellipse at center, rgba(10,90,40,0.85) 0%, #000 65%); }
+#door-overlay.state-open     { background: #000 radial-gradient(ellipse at center, rgba(150,90,15,0.85) 0%, #000 65%); }
+#door-overlay-icon { font-size: clamp(120px, 18vw, 220px); line-height: 1; }
+#door-overlay-name { font-size: clamp(48px, 6vw, 90px); font-weight: 200; color: #fff; letter-spacing: 4px; text-align: center; }
+#door-overlay-state { font-size: clamp(80px, 12vw, 180px); font-weight: 700; letter-spacing: 12px; text-transform: uppercase; }
+#door-overlay.state-locked   #door-overlay-state { color: #ff6464; }
+#door-overlay.state-unlocked #door-overlay-state { color: #00dc64; }
+#door-overlay.state-open     #door-overlay-state { color: #ffaa1a; }
+#door-overlay-sub { font-size: 18px; color: var(--subtext); letter-spacing: 4px; text-transform: uppercase; }
+@keyframes door-overlay-in { from { opacity: 0; transform: scale(0.94); } to { opacity: 1; transform: scale(1); } }
+
+#message-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.92); z-index: 400; display: none; flex-direction: column; align-items: center; justify-content: center; padding: 80px; transition: background 0.3s; }
+#message-overlay.active { display: flex; }
+#message-overlay.priority-urgent { background: rgba(180,20,20,0.95); }
+#message-overlay.priority-normal { background: rgba(10,80,30,0.95); }
+#message-overlay.priority-info   { background: rgba(10,30,70,0.95); }
+#message-priority-badge { font-size: 11px; letter-spacing: 4px; text-transform: uppercase; padding: 5px 16px; border-radius: 20px; margin-bottom: 20px; font-weight: 600; display: none; }
+.priority-urgent #message-priority-badge, .priority-normal #message-priority-badge, .priority-info #message-priority-badge { display: inline-block; background: rgba(255,255,255,0.2); color: #fff; }
+#message-from { font-size: 15px; letter-spacing: 4px; text-transform: uppercase; color: rgba(255,255,255,0.7); margin-bottom: 28px; }
+#message-body { font-size: clamp(48px, 7vw, 108px); font-weight: 200; text-align: center; line-height: 1.2; max-width: 1200px; color: #fff; }
+#message-dismiss-auto { position: fixed; bottom: 40px; right: 48px; font-size: 13px; color: rgba(255,255,255,0.4); }
+
+#bg-gradient { position: fixed; inset: 0; pointer-events: none; z-index: 0; }
+
+/* IDLE / OVERNIGHT overlay */
+#idle-overlay {
+  position: fixed; inset: 0; background: #000;
+  z-index: 600; display: none;
+  align-items: center; justify-content: center;
+  flex-direction: column; gap: 24px;
+}
+#idle-overlay.active { display: flex; }
+#idle-overlay.minimal { background: #050810; }
+#idle-mode-content { color: rgba(255,255,255,0.7); text-align: center; }
+#idle-mode-content .clock { font-size: clamp(80px, 12vw, 160px); font-weight: 100; font-variant-numeric: tabular-nums; }
+#idle-mode-content .date  { font-size: 18px; color: rgba(255,255,255,0.4); margin-top: 12px; letter-spacing: 4px; text-transform: uppercase; }
+#idle-mode-content .msg   { font-size: 36px; max-width: 800px; line-height: 1.3; padding: 0 40px; font-weight: 200; }
+

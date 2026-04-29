@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Sign in · Pittwater Signage</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --border: #30363d;
+    --text: #e6edf3; --subtext: #7d8590; --accent: #58a6ff;
+    --success: #3fb950; --danger: #f85149;
+  }
+  :root[data-theme="light"] {
+    --bg: #ffffff; --surface: #f6f8fa; --border: #d0d7de;
+    --text: #1f2328; --subtext: #656d76; --accent: #0969da;
+    --success: #1a7f37; --danger: #cf222e;
+  }
+  @media (prefers-color-scheme: light) {
+    :root[data-theme="auto"] {
+      --bg: #ffffff; --surface: #f6f8fa; --border: #d0d7de;
+      --text: #1f2328; --subtext: #656d76; --accent: #0969da;
+      --success: #1a7f37; --danger: #cf222e;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 36px 32px; width: 100%; max-width: 380px;
+  }
+  h1 { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+  .sub { font-size: 13px; color: var(--subtext); margin-bottom: 24px; }
+  label { display: block; font-size: 12px; color: var(--subtext); margin: 14px 0 5px; }
+  input {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--text); padding: 9px 11px; font-size: 14px;
+    outline: none; transition: border-color 0.15s;
+  }
+  input:focus { border-color: var(--accent); }
+  .btn {
+    width: 100%; margin-top: 20px; background: var(--accent); color: #000;
+    border: none; padding: 10px; border-radius: 6px; font-size: 14px;
+    font-weight: 600; cursor: pointer; transition: opacity 0.15s;
+  }
+  .btn:hover { opacity: 0.85; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .err { color: var(--danger); font-size: 13px; margin-top: 12px; min-height: 18px; }
+  .ok  { color: var(--success); font-size: 13px; margin-top: 12px; min-height: 18px; }
+  .footer-note { font-size: 11px; color: var(--subtext); margin-top: 20px; text-align: center; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1 id="title">Sign in</h1>
+    <div class="sub" id="subtitle">Pittwater Signage admin</div>
+    <form id="form" autocomplete="on">
+      <label for="username">Username</label>
+      <input type="text" id="username" autocomplete="username" required>
+      <label for="password">Password</label>
+      <input type="password" id="password" autocomplete="current-password" required>
+      <button class="btn" type="submit" id="submit">Sign in</button>
+      <div class="err" id="err"></div>
+    </form>
+    <div class="footer-note">Internal tool — only authorised users.</div>
+  </div>
+<script>
+// Apply admin theme preference (set via the admin toggle) so login matches.
+try {
+  document.documentElement.setAttribute('data-theme', localStorage.getItem('admin-theme') || 'auto');
+} catch (_) {}
+
+let mode = 'login';
+
+async function init() {
+  const r = await fetch('/api/auth/setup-status');
+  const j = await r.json();
+  if (j.needsSetup) {
+    mode = 'setup';
+    document.getElementById('title').textContent = 'Set up admin';
+    document.getElementById('subtitle').textContent = 'No users yet — create the first admin account.';
+    document.getElementById('submit').textContent = 'Create admin';
+    document.getElementById('password').autocomplete = 'new-password';
+  }
+}
+
+document.getElementById('form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+  const errEl = document.getElementById('err');
+  errEl.textContent = '';
+  const submit = document.getElementById('submit');
+  submit.disabled = true;
+  try {
+    const r = await fetch(mode === 'setup' ? '/api/auth/setup' : '/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    const j = await r.json();
+    if (!r.ok) {
+      errEl.textContent = j.error || 'Failed';
+      submit.disabled = false;
+      return;
+    }
+    location.href = '/admin';
+  } catch (e) {
+    errEl.textContent = 'Network error';
+    submit.disabled = false;
+  }
+});
+
+init();
+</script>
+</body>
+</html>
