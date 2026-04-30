@@ -1267,7 +1267,7 @@ function renderStocksTab(body, cfg) {
 
     <div class="card">
       <div class="card-title"><span class="icon">📊</span> Stock Big Board</div>
-      <p class="muted">Sector treemap of the entire S&amp;P 500. Each tile is sized by index weight (≈ market cap) and coloured red or green by the day's change.</p>
+      <p class="muted">Sector treemap of the entire S&amp;P 500. Each tile is sized by index weight (≈ market cap) and coloured red or green by the day's change. Snapshot refreshes 3× per US trading day — market open (9:35 ET), mid-day (12:45 ET), and after the close (4:05 ET).</p>
       <div class="form-row">
         <label>Tile change label</label>
         <div style="display:flex;gap:18px;align-items:center;">

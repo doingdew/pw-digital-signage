@@ -282,17 +282,23 @@ async function withConcurrency(items, limit, fn) {
   return results;
 }
 
-// Stale-while-revalidate snapshot for the whole 500-stock payload. Keeps
-// /sp500 instant after the first warm-up; refresh runs in the background.
+// Snapshot for the whole 500-stock payload. Refreshed on a fixed schedule
+// (3x per US trading day — see SP500_SCHEDULE_ET below) plus a one-shot
+// warm-up at boot. Between scheduled refreshes the same snapshot is served
+// to every caller, so /sp500 is effectively free after the first hit.
 let sp500Snapshot = null;
 let sp500SnapshotAt = 0;
+let sp500SnapshotSession = null;     // 'open' | 'midday' | 'close' | 'boot'
 let sp500RefreshPromise = null;
-const SP500_FRESH_MS    = 60 * 1000;
-const SP500_STALE_OK_MS = 10 * 60 * 1000;
 
-async function refreshSp500Snapshot() {
+async function refreshSp500Snapshot(session) {
+  // Per-symbol quote cache may also be stale; bypass it so a scheduled refresh
+  // really does pull fresh prices from upstream.
   const list = await getSp500List();
-  const settled = await withConcurrency(list, 20, item => getQuote(item.symbol));
+  const settled = await withConcurrency(list, 20, async item => {
+    cache.delete(item.symbol);
+    return getQuote(item.symbol);
+  });
   const data = list.map((item, i) => {
     const r = settled[i];
     const q = r && r.status === 'fulfilled' ? r.value : null;
@@ -308,22 +314,16 @@ async function refreshSp500Snapshot() {
   });
   sp500Snapshot = data;
   sp500SnapshotAt = Date.now();
+  sp500SnapshotSession = session || sp500SnapshotSession;
   return data;
 }
 
 async function getSp500Snapshot() {
-  const age = Date.now() - sp500SnapshotAt;
-  if (sp500Snapshot && age < SP500_FRESH_MS) return sp500Snapshot;
-  if (sp500Snapshot && age < SP500_STALE_OK_MS) {
-    if (!sp500RefreshPromise) {
-      sp500RefreshPromise = refreshSp500Snapshot()
-        .catch(e => console.warn('[stocks] sp500 refresh failed:', e.message))
-        .finally(() => { sp500RefreshPromise = null; });
-    }
-    return sp500Snapshot;
-  }
+  // Always serve the existing snapshot — it only updates on the schedule
+  // below or via the boot pre-warm.
+  if (sp500Snapshot) return sp500Snapshot;
   if (!sp500RefreshPromise) {
-    sp500RefreshPromise = refreshSp500Snapshot()
+    sp500RefreshPromise = refreshSp500Snapshot('boot')
       .finally(() => { sp500RefreshPromise = null; });
   }
   return sp500RefreshPromise;
@@ -332,16 +332,73 @@ async function getSp500Snapshot() {
 router.get('/sp500', async (req, res) => {
   try {
     const stocks = await getSp500Snapshot();
-    res.json({ stocks, snapshotAt: sp500SnapshotAt });
+    res.json({ stocks, snapshotAt: sp500SnapshotAt, snapshotSession: sp500SnapshotSession });
   } catch (e) {
     res.status(502).json({ error: e.message || 'snapshot failed' });
   }
 });
 
+// ── Scheduled refresh: market open, mid-day, market close (US Eastern).
+// 9:35 leaves a 5-minute settle window after the bell so opening-cross
+// volatility doesn't dominate the snapshot. 16:05 captures the closing print.
+const SP500_SCHEDULE_ET = [
+  { name: 'open',   h: 9,  m: 35 },
+  { name: 'midday', h: 12, m: 45 },
+  { name: 'close',  h: 16, m: 5  },
+];
+
+function getEtParts(date) {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', weekday: 'short',
+    hour12: false,
+  });
+  const parts = fmt.formatToParts(date);
+  const get = (t) => parts.find(p => p.type === t)?.value;
+  const dowMap = { Sun:0, Mon:1, Tue:2, Wed:3, Thu:4, Fri:5, Sat:6 };
+  let h = parseInt(get('hour'), 10);
+  if (h === 24) h = 0;   // some locales emit 24:00 instead of 00:00
+  return {
+    dateKey: `${get('year')}-${get('month')}-${get('day')}`,
+    hour: h,
+    minute: parseInt(get('minute'), 10),
+    weekday: dowMap[get('weekday')] ?? -1,
+  };
+}
+
+let sp500LastDoneKey = null;
+
+// Single dedup point so boot pre-warm, scheduled slots, and cold-start cache
+// misses can't all fire 500-symbol fetches concurrently.
+function startRefresh(session, label) {
+  if (sp500RefreshPromise) return sp500RefreshPromise;
+  sp500RefreshPromise = refreshSp500Snapshot(session)
+    .catch(e => console.warn(`[stocks] ${label} failed:`, e.message))
+    .finally(() => { sp500RefreshPromise = null; });
+  return sp500RefreshPromise;
+}
+
+setInterval(() => {
+  if (sp500RefreshPromise) return;   // boot pre-warm or prior slot still running
+  const et = getEtParts(new Date());
+  if (et.weekday < 1 || et.weekday > 5) return;   // skip weekends
+  for (const slot of SP500_SCHEDULE_ET) {
+    if (et.hour !== slot.h) continue;
+    // Allow a 90-second window so a slow tick still catches the slot.
+    if (et.minute < slot.m || et.minute > slot.m + 1) continue;
+    const key = `${et.dateKey}-${slot.name}`;
+    if (sp500LastDoneKey === key) continue;
+    sp500LastDoneKey = key;
+    console.log(`[stocks] scheduled S&P 500 refresh: ${slot.name} (${slot.h}:${String(slot.m).padStart(2,'0')} ET)`);
+    startRefresh(slot.name, 'scheduled refresh');
+  }
+}, 30 * 1000).unref();
+
 // Pre-warm at boot so the first user request doesn't pay the cold-fetch cost.
 // Errors are non-fatal — the endpoint will just block on the first real call.
 setTimeout(() => {
-  refreshSp500Snapshot().catch(e => console.warn('[stocks] sp500 prewarm failed:', e.message));
+  startRefresh('boot', 'sp500 prewarm');
 }, 2000).unref();
 
 module.exports = router;

@@ -1277,11 +1277,11 @@ const STOCK_INDEX_LABELS = {
 function startStocks() {
   refreshStocksOverview();
   refreshStocksBigBoard();
-  // Markets overview polls slightly faster (small payload); big board pulls a
-  // 500-stock snapshot from a stale-while-revalidate server cache so this is
-  // mostly free server-side.
+  // Markets overview is live (BTC + indices); big board snapshot only updates
+  // server-side at market open / mid-day / close, so a 5-min client poll is
+  // plenty to pick up the new snapshot quickly.
   setInterval(refreshStocksOverview, 60 * 1000);
-  setInterval(refreshStocksBigBoard, 60 * 1000);
+  setInterval(refreshStocksBigBoard, 5 * 60 * 1000);
   // Re-layout the treemap on viewport changes (orientation flip, font load).
   window.addEventListener('resize', () => { renderBigBoardTreemap(); });
 }
@@ -1371,11 +1371,19 @@ async function refreshStocksBigBoard() {
     const j = await r.json();
     state.sp500 = j.stocks || [];
     state.sp500At = j.snapshotAt || Date.now();
+    state.sp500Session = j.snapshotSession || null;
   } catch (e) {
     return;
   }
   renderBigBoardTreemap();
 }
+
+const SP500_SESSION_LABEL = {
+  open:   'Market Open',
+  midday: 'Mid-Day',
+  close:  'Market Close',
+  boot:   '',   // boot-time pre-warm has no nice label
+};
 
 // Squarified treemap (Bruls et al.). Returns absolute-positioned rects that
 // fill the {x,y,w,h} container, sized by each item's `value`.
@@ -1533,7 +1541,13 @@ function renderBigBoardTreemap() {
     html += `</div></div>`;
   }
   bbEl.innerHTML = html;
-  setText('stocks-bigboard-updated', `Updated: ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}`);
+  // Show the *snapshot* time, not the poll time, since the data only updates
+  // 3x per trading day (open / mid-day / close).
+  if (state.sp500At) {
+    const when = new Date(state.sp500At).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const session = SP500_SESSION_LABEL[state.sp500Session];
+    setText('stocks-bigboard-updated', session ? `${session} · ${when}` : `Snapshot · ${when}`);
+  }
 }
 
 // ── Trends ───────────────────────────────────────────────────────
