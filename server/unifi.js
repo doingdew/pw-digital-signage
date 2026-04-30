@@ -35,6 +35,7 @@ const doors = new Map();
 let socket = null;
 let backoff = 1000;
 let pingTimer = null;
+let reconnectTimer = null;     // pending setTimeout(connect, ...) — must be cleared in teardown
 let stopRequested = false;
 
 function snapshot() { return [...doors.values()]; }
@@ -47,6 +48,9 @@ function fetchInitialDoors() {
       method: 'GET',
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
       agent: tlsAgent,
+      // Without this, a stalled controller hangs the request indefinitely and
+      // pins a TCP socket — and reconnect attempts pile new ones on top.
+      timeout: 8000,
     }, (res) => {
       let body = '';
       res.on('data', (c) => body += c);
@@ -67,6 +71,7 @@ function fetchInitialDoors() {
         } catch (e) { reject(e); }
       });
     });
+    req.on('timeout', () => { try { req.destroy(new Error('UniFi doors fetch timeout')); } catch (_) {} });
     req.on('error', reject);
     req.end();
   });
@@ -106,6 +111,9 @@ function handleEvent(evt) {
 function teardown() {
   stopRequested = true;
   clearInterval(pingTimer); pingTimer = null;
+  // Cancel any pending reconnect attempt — otherwise it would fire after
+  // restart() and create a parallel orphan socket (with its own pingTimer).
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   if (socket) {
     try { socket.removeAllListeners(); } catch (_) {}
     try { socket.terminate(); } catch (_) {}
@@ -117,6 +125,15 @@ function connect() {
   const { host, token } = loadConfig();
   if (!token) { console.warn('[unifi] No Access API key — bridge idle'); return; }
   stopRequested = false;
+  // When called from reconnect(), the previous socket's 'close' fired but its
+  // other listeners are still attached. Detach + terminate before reassigning
+  // so a late event from the old instance can't re-trigger reconnect logic
+  // and so the old socket can be GC'd promptly.
+  if (socket) {
+    try { socket.removeAllListeners(); } catch (_) {}
+    try { socket.terminate(); } catch (_) {}
+    socket = null;
+  }
   socket = new WebSocket(`wss://${host}:${PORT}/api/v1/developer/devices/notifications`, {
     headers: { Authorization: `Bearer ${token}` },
     agent: tlsAgent,
@@ -144,10 +161,11 @@ function connect() {
   const reconnect = () => {
     if (stopRequested) return;
     clearInterval(pingTimer);
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     const delay = Math.min(backoff, 30000);
     backoff *= 2;
     console.log(`[unifi] WS down, reconnecting in ${delay}ms`);
-    setTimeout(connect, delay);
+    reconnectTimer = setTimeout(() => { reconnectTimer = null; connect(); }, delay);
   };
   socket.on('close', reconnect);
   socket.on('error', (e) => { console.error('[unifi] WS error:', e.message); });

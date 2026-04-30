@@ -21,6 +21,9 @@ function getCreds() {
 }
 
 // Pipe a request through to UniFi Protect, streaming the response back.
+// Carefully handles client/upstream disconnects so neither side leaks an
+// open socket — the page polls these every 10s × N TVs × N cameras, so even
+// a small leak adds up.
 function proxyTo(path, contentTypeFallback, req, res) {
   const { host, key } = getCreds();
   if (!host || !key) return res.status(503).json({ error: 'UniFi not configured. Set host and API key in Settings.' });
@@ -38,15 +41,21 @@ function proxyTo(path, contentTypeFallback, req, res) {
     res.status(upstream.statusCode || 502);
     const ct = upstream.headers['content-type'] || contentTypeFallback;
     if (ct) res.setHeader('Content-Type', ct);
-    // Snapshots change frequently — never cache.
     res.setHeader('Cache-Control', 'no-store');
+    // If upstream errors mid-stream, end the response cleanly instead of
+    // letting the EPIPE bubble as an uncaught exception.
+    upstream.on('error', () => { try { res.end(); } catch (_) {} });
     upstream.pipe(res);
   });
+  // If the client (signage page / browser) hangs up before we're done,
+  // tear down the upstream connection so we don't keep streaming bytes
+  // into a closed socket.
+  res.on('close', () => { try { r.destroy(); } catch (_) {} });
   r.on('error', (e) => {
     if (!res.headersSent) res.status(502).json({ error: e.message });
-    else res.end();
+    else { try { res.end(); } catch (_) {} }
   });
-  r.on('timeout', () => { r.destroy(new Error('upstream timeout')); });
+  r.on('timeout', () => { try { r.destroy(new Error('upstream timeout')); } catch (_) {} });
   r.end();
 }
 

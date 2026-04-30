@@ -12,18 +12,40 @@ const router = express.Router();
 
 // Tiny in-memory cache so we don't hammer Google's iCal endpoints.
 const CACHE_TTL_MS = 5 * 60 * 1000;
+const FETCH_TIMEOUT_MS = 10 * 1000;
 const cache = new Map();   // url -> { fetchedAt, events }
 
 async function fetchIcs(url) {
   const cached = cache.get(url);
   if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) return cached.events;
-  const r = await fetch(url, { redirect: 'follow' });
+  // Bound the fetch so a hung Google iCal endpoint doesn't leak a request +
+  // socket forever. AbortController + setTimeout works on both Node-fetch
+  // and Node 18+ global fetch.
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS);
+  let r;
+  try {
+    r = await fetch(url, { redirect: 'follow', signal: ctl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   const text = await r.text();
   const events = parseIcs(text);
   cache.set(url, { fetchedAt: Date.now(), events });
   return events;
 }
+
+// Periodically prune cache entries whose TTL has long passed. Without this
+// the Map grows unbounded if calendar URLs change over time (e.g. swapping
+// meeting-room iCals). Sweeps every 30 minutes; entries older than 1 hour
+// are dropped — well after the 5-min TTL has expired.
+setInterval(() => {
+  const cutoff = Date.now() - 60 * 60 * 1000;
+  for (const [url, entry] of cache) {
+    if (entry.fetchedAt < cutoff) cache.delete(url);
+  }
+}, 30 * 60 * 1000).unref();
 
 // Minimal iCal parser. Handles:
 //   - line unfolding (continuations starting with space/tab)

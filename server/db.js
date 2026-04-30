@@ -102,6 +102,7 @@ function defaultScreenConfig() {
       'zone-shipments','zone-kpi','zone-bignum','zone-safety','zone-calendar','zone-meetings','zone-slack',
       'zone-motivation',
       'zone-weather','zone-sports-results','zone-sports-upcoming','zone-trends',
+      'zone-stocks-overview','zone-stocks-bigboard',
       'zone-doors','zone-radar','zone-traffic',
       'zone-slides',
     ],
@@ -185,6 +186,14 @@ function defaultScreenConfig() {
 
     // trends
     trendsCountry: 'US',
+
+    // Stocks — markets overview row + selectable big-board grid
+    // Yahoo Finance symbols. Indices use ^ prefix; crypto is BTC-USD style;
+    // forex via ticker like DX-Y.NYB (US dollar index).
+    stockIndices: ['^DJI', '^IXIC', '^GSPC', 'DX-Y.NYB', 'BTC-USD'],
+    stockOverviewSymbols: [],
+    stockBigBoardSymbols: ['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN', 'META', 'TSLA', 'BRK-B'],
+    stockBigBoardMode: 'percent',  // 'percent' | 'dollar'
 
     // radar
     radarLat: 41.4789,

@@ -86,6 +86,7 @@ async function boot() {
   startSheet();
   startSports();
   startTrends();
+  startStocks();
   // Build static parts
   buildAnalogFace();
   buildDots();
@@ -829,6 +830,7 @@ function goToZone(index, manual = false) {
   if (zid === 'zone-slack') renderSlack();   // refresh "5m ago" labels
   if (zid === 'zone-sports' || zid === 'zone-sports-results' || zid === 'zone-sports-upcoming') fetchSportsScores();
   if (zid === 'zone-trends') refreshTrends();
+  if (zid === 'zone-stocks-overview' || zid === 'zone-stocks-bigboard') refreshStocks();
   if (zid === 'zone-radar')  initRadar();
   if (zid === 'zone-traffic') updateTrafficMap();
   if (zid === 'zone-worldclocks') renderWorldClocks();
@@ -852,6 +854,14 @@ function shouldSkipZone(zid) {
   }
   if (zid === 'zone-sports-results')  return !(state.sportsZoneCounts?.results > 0);
   if (zid === 'zone-sports-upcoming') return !(state.sportsZoneCounts?.upcoming > 0);
+  if (zid === 'zone-stocks-overview') {
+    const cfg = state.config || {};
+    const n = (cfg.stockIndices?.length || 0) + (cfg.stockOverviewSymbols?.length || 0);
+    return n === 0;
+  }
+  if (zid === 'zone-stocks-bigboard') {
+    return !((state.config?.stockBigBoardSymbols || []).length);
+  }
   if (zid === 'zone-safety') {
     const all = state.config?.safetyMessages || [];
     const active = all.filter(x => typeof x === 'string' ? true : x?.enabled !== false);
@@ -1119,8 +1129,12 @@ async function fetchSportsScores() {
     : null;
   const showOdds = !!state.config?.sportsShowOdds;
   const activeLeagues = enabled ? SPORTS_LEAGUES.filter(l => enabled.has(l.id)) : SPORTS_LEAGUES;
+  // limit caps total events across the whole date range, not per day. MLB and
+  // college football can have 15+ games/day, so a low cap returned the earliest
+  // day's games only — already too old for the results bucket and not 'pre'
+  // enough for upcoming, leaving those zones empty.
   const results = await Promise.allSettled(activeLeagues.map(async lg => {
-    const r = await fetch(`https://site.api.espn.com/apis/site/v2/sports/${lg.sport}/${lg.league}/scoreboard?dates=${dates}&limit=10`, { cache: 'no-cache' });
+    const r = await fetch(`https://site.api.espn.com/apis/site/v2/sports/${lg.sport}/${lg.league}/scoreboard?dates=${dates}&limit=200`, { cache: 'no-cache' });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return { lg, events: (await r.json()).events || [] };
   }));
@@ -1232,6 +1246,133 @@ async function fetchSportsScores() {
   state.sportsZoneCounts = { results: resultsCount, upcoming: upcomingCount, combined: totalGames };
   setText('sports-results-updated',  stamp);
   setText('sports-upcoming-updated', stamp);
+}
+
+// ── Stocks ───────────────────────────────────────────────────────
+// Two zones share one fetch: the "markets" overview row and the big-board
+// grid. Symbols are deduped before hitting the server-side proxy so each
+// price is fetched once even if both zones include it.
+const STOCK_INDEX_LABELS = {
+  '^DJI':      'DOW',
+  '^IXIC':     'NASDAQ',
+  '^GSPC':     'S&P 500',
+  '^RUT':      'RUSSELL 2000',
+  'DX-Y.NYB':  'US DOLLAR',
+  'DX=F':      'US DOLLAR',
+  'BTC-USD':   'BITCOIN',
+  'ETH-USD':   'ETHEREUM',
+  'GC=F':      'GOLD',
+  'SI=F':      'SILVER',
+  'CL=F':      'OIL (WTI)',
+  'BZ=F':      'OIL (BRENT)',
+  '^VIX':      'VIX',
+  '^FTSE':     'FTSE 100',
+  '^N225':     'NIKKEI 225',
+  '^HSI':      'HANG SENG',
+  '^GDAXI':    'DAX',
+};
+
+function startStocks() {
+  refreshStocks();
+  // Server caches each symbol for 30s; polling every 60s keeps prices feeling
+  // live without hammering the upstream.
+  setInterval(refreshStocks, 60 * 1000);
+}
+
+function fmtPrice(n) {
+  if (n == null || !isFinite(n)) return '—';
+  const abs = Math.abs(n);
+  if (abs >= 1000) return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  if (abs >= 1)    return n.toFixed(2);
+  return n.toFixed(4);
+}
+
+function fmtSignedPrice(n) {
+  if (n == null || !isFinite(n)) return '—';
+  const sign = n >= 0 ? '+' : '−';
+  return sign + fmtPrice(Math.abs(n));
+}
+
+async function refreshStocks() {
+  const cfg = state.config || {};
+  const indices  = (cfg.stockIndices && cfg.stockIndices.length) ? cfg.stockIndices : [];
+  const ovExtra  = cfg.stockOverviewSymbols || [];
+  const bigBoard = cfg.stockBigBoardSymbols  || [];
+  const overviewSymbols = [...indices, ...ovExtra];
+  const allSymbols = Array.from(new Set([...overviewSymbols, ...bigBoard]));
+  if (!allSymbols.length) return;
+
+  let quotes;
+  try {
+    const r = await fetch(`/api/stocks/quotes?symbols=${encodeURIComponent(allSymbols.join(','))}`, { cache: 'no-cache' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    quotes = (await r.json()).quotes || [];
+  } catch (e) {
+    return;
+  }
+  const bySymbol = new Map(quotes.map(q => [q.symbol, q]));
+
+  // ── Markets overview ─────────────────────────────────────────
+  const ovEl = $('stocks-overview-list');
+  if (ovEl) {
+    if (!overviewSymbols.length) {
+      ovEl.innerHTML = '<div class="trend-empty">No markets configured.</div>';
+    } else {
+      ovEl.innerHTML = overviewSymbols.map(sym => {
+        const q = bySymbol.get(sym);
+        const label = STOCK_INDEX_LABELS[sym] || (q?.name && q.name.length <= 24 ? q.name : sym);
+        if (!q || q.error) {
+          return `<div class="stock-row flat">
+            <div class="stock-label">${escHtml(label)}</div>
+            <div class="stock-price">—</div>
+            <div class="stock-change">—</div>
+          </div>`;
+        }
+        const ch = q.change ?? 0;
+        const cls = ch > 0 ? 'up' : ch < 0 ? 'down' : 'flat';
+        const arrow = ch > 0 ? '▲' : ch < 0 ? '▼' : '•';
+        const dol = fmtSignedPrice(q.change);
+        const pct = q.changePercent != null ? `${q.changePercent >= 0 ? '+' : ''}${q.changePercent.toFixed(2)}%` : '—';
+        return `<div class="stock-row ${cls}">
+          <div class="stock-label">${escHtml(label)}</div>
+          <div class="stock-price">${escHtml(fmtPrice(q.price))}</div>
+          <div class="stock-change">${arrow} ${escHtml(dol)} (${escHtml(pct)})</div>
+        </div>`;
+      }).join('');
+    }
+  }
+
+  // ── Big board ────────────────────────────────────────────────
+  const bbEl = $('stocks-bigboard-grid');
+  if (bbEl) {
+    const mode = cfg.stockBigBoardMode === 'dollar' ? 'dollar' : 'percent';
+    setText('stocks-bigboard-mode-tag', mode === 'dollar' ? 'BY $ CHANGE' : 'BY % CHANGE');
+    if (!bigBoard.length) {
+      bbEl.innerHTML = '<div class="trend-empty">No tickers configured.</div>';
+    } else {
+      bbEl.innerHTML = bigBoard.map(sym => {
+        const q = bySymbol.get(sym);
+        if (!q || q.error) {
+          return `<div class="bb-tile bb-flat"><div class="bb-symbol">${escHtml(sym)}</div><div class="bb-error">no data</div></div>`;
+        }
+        const ch = q.change ?? 0;
+        const cls = ch > 0 ? 'bb-up' : ch < 0 ? 'bb-down' : 'bb-flat';
+        const arrow = ch > 0 ? '▲' : ch < 0 ? '▼' : '•';
+        const display = mode === 'dollar'
+          ? fmtSignedPrice(q.change)
+          : (q.changePercent != null ? `${q.changePercent >= 0 ? '+' : ''}${q.changePercent.toFixed(2)}%` : '—');
+        return `<div class="bb-tile ${cls}">
+          <div class="bb-symbol">${escHtml(sym)}</div>
+          <div class="bb-price">${escHtml(fmtPrice(q.price))}</div>
+          <div class="bb-change">${arrow} ${escHtml(display)}</div>
+        </div>`;
+      }).join('');
+    }
+  }
+
+  const stamp = `Updated: ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}`;
+  setText('stocks-overview-updated', stamp);
+  setText('stocks-bigboard-updated', stamp);
 }
 
 // ── Trends ───────────────────────────────────────────────────────

@@ -8,7 +8,7 @@ const express = require('express');
 const cookieParser = require('cookie-parser');
 
 const { db, UPLOADS_DIR } = require('./db');
-const { requireAuthPage, sessionFromCookie } = require('./auth');
+const { requireAuth, requireAuthPage, sessionFromCookie } = require('./auth');
 const wsHub = require('./ws');
 
 const authRoutes = require('./routes/auth');
@@ -21,11 +21,23 @@ const slackRoutes = require('./routes/slack');
 const settingsRoutes = require('./routes/settings');
 const templatesRoutes = require('./routes/templates');
 const unifiProxyRoutes = require('./routes/unifi');
+const stocksRoutes = require('./routes/stocks');
 const slack = require('./slack');
 const unifi = require('./unifi');
 
 const PORT = Number(process.env.PORT || 3000);
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+
+// uncaughtException leaves the process in an undefined state — log and exit so
+// Docker (`restart: unless-stopped`) brings up a clean instance. Swallowing it
+// hides the root cause and lets corrupted state cause delayed crashes elsewhere.
+process.on('uncaughtException', (e) => {
+  console.error('[fatal] uncaughtException:', e?.stack || e);
+  process.exit(1);
+});
+// Promise rejections from long-running integrations (Slack Socket Mode, UniFi
+// WSS) are usually transient — log without exiting.
+process.on('unhandledRejection', (e) => console.error('[fatal] unhandledRejection:', e?.stack || e));
 
 const app = express();
 
@@ -45,6 +57,29 @@ app.use('/api/slack', slackRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/templates', templatesRoutes);
 app.use('/api/unifi', unifiProxyRoutes);
+app.use('/api/stocks', stocksRoutes);
+
+// Diagnostic snapshot — memory + active handles + WS counts. Used to spot
+// slow leaks while the process is running. Auth-gated since it leaks process
+// internals.
+app.get('/api/_debug/health', requireAuth, (req, res) => {
+  const mem = process.memoryUsage();
+  res.json({
+    uptimeSec: Math.round(process.uptime()),
+    pid: process.pid,
+    nodeVersion: process.version,
+    memoryMb: {
+      rss:        Math.round(mem.rss / 1024 / 1024),
+      heapTotal:  Math.round(mem.heapTotal / 1024 / 1024),
+      heapUsed:   Math.round(mem.heapUsed / 1024 / 1024),
+      external:   Math.round(mem.external / 1024 / 1024),
+      arrayBuffers: Math.round((mem.arrayBuffers || 0) / 1024 / 1024),
+    },
+    activeHandles:  typeof process._getActiveHandles  === 'function' ? process._getActiveHandles().length  : null,
+    activeRequests: typeof process._getActiveRequests === 'function' ? process._getActiveRequests().length : null,
+    wsClients: wsHub.clientCounts(),
+  });
+});
 
 // ── Static asset serving ──────────────────────────────────────────
 // Uploaded files. fallthrough: true so a missing file falls through to our

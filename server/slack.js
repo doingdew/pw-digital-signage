@@ -59,10 +59,17 @@ async function start() {
     console.log(`[slack] connected as @${auth.user || auth.bot_id} in workspace ${auth.team}`);
 
     // Primary handler — fires for chat messages from the events API.
+    // Wrapped in try/catch so DB hiccups (lock, schema drift) or odd payloads
+    // don't escape as unhandled rejections — those would otherwise crash the
+    // whole process.
     socket.on('message', async ({ event, ack }) => {
       try { await ack(); } catch (_) {}
       console.log(`[slack] event 'message' received: channel=${event?.channel} subtype=${event?.subtype || '-'} user=${event?.user || event?.bot_id || '-'} text=${(event?.text || '').slice(0, 40)}`);
-      await handleMessage(event, cfg);
+      try {
+        await handleMessage(event, cfg);
+      } catch (e) {
+        console.error('[slack] handleMessage error:', e?.stack || e);
+      }
     });
 
     // Diagnostic — log ALL slack events flowing in so we can see why messages

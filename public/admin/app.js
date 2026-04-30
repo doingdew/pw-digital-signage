@@ -36,6 +36,8 @@ const ZONE_META = {
   'zone-sports-results':  { label: 'Sports Results',  icon: '🏆' },
   'zone-sports-upcoming': { label: 'Sports Upcoming', icon: '🏆' },
   'zone-trends':      { label: 'Trends',         icon: '🔥' },
+  'zone-stocks-overview': { label: 'Markets',     icon: '📈' },
+  'zone-stocks-bigboard': { label: 'Stock Big Board', icon: '📊' },
   // Surveillance / maps
   'zone-doors':       { label: 'Cameras',        icon: '📷' },
   'zone-radar':       { label: 'Weather Radar',  icon: '🌧️' },
@@ -425,6 +427,7 @@ async function renderScreen(slug, tab) {
       ['slides',     'Slides'],
       ['weather',    'Weather'],
       ['sports',     'Sports'],
+      ['stocks',     'Stocks'],
       ['sunarc',     'Sun Arc'],
       ['trends',     'Trends'],
       ['radar',      'Radar'],
@@ -473,6 +476,7 @@ function renderTab(tab) {
     case 'cameras':     return renderCamerasTab(body, cfg);
     case 'slides':      return renderSlidesTab(body, cfg);
     case 'sports':      return renderSportsTab(body, cfg);
+    case 'stocks':      return renderStocksTab(body, cfg);
     case 'bignum':      return renderBigNumTab(body, cfg);
     case 'quiet':       return renderQuietTab(body, cfg);
     default:            body.innerHTML = '<div class="muted">Unknown tab.</div>';
@@ -1210,6 +1214,92 @@ function renderSportsTab(body, cfg) {
       sportsLayout: $('sports-layout').value,
     });
     toast('Sports settings saved');
+  });
+}
+
+// ── Tab: Stocks ──────────────────────────────────────────────────
+// Two zones: Markets overview (indices/forex/crypto + extra tickers) and the
+// Big Board (grid of tickers, red/green by daily change). Symbol lists are
+// stored as comma-separated strings in the UI but persisted as arrays.
+function renderStocksTab(body, cfg) {
+  const INDEX_OPTIONS = [
+    ['^DJI',     'DOW',          '📊'],
+    ['^IXIC',    'NASDAQ',       '💻'],
+    ['^GSPC',    'S&P 500',      '🇺🇸'],
+    ['^RUT',     'Russell 2000', '🏭'],
+    ['^VIX',     'VIX',          '⚡'],
+    ['DX-Y.NYB', 'US Dollar',    '💵'],
+    ['BTC-USD',  'Bitcoin',      '₿'],
+    ['ETH-USD',  'Ethereum',     '⟠'],
+    ['GC=F',     'Gold',         '🥇'],
+    ['SI=F',     'Silver',       '🥈'],
+    ['CL=F',     'Oil (WTI)',    '🛢️'],
+    ['^FTSE',    'FTSE 100',     '🇬🇧'],
+    ['^N225',    'Nikkei 225',   '🇯🇵'],
+    ['^HSI',     'Hang Seng',    '🇭🇰'],
+    ['^GDAXI',   'DAX',          '🇩🇪'],
+  ];
+  const indices = new Set(cfg.stockIndices || []);
+  const overviewExtras = (cfg.stockOverviewSymbols || []).join(', ');
+  const bigBoard       = (cfg.stockBigBoardSymbols  || []).join(', ');
+  const mode           = cfg.stockBigBoardMode === 'dollar' ? 'dollar' : 'percent';
+
+  body.innerHTML = `
+    <div class="card">
+      <div class="card-title"><span class="icon">📈</span> Markets Overview</div>
+      <p class="muted">Top row of the Markets zone. Quotes come from Yahoo Finance and refresh every 60 seconds (cached server-side for 30s).</p>
+      <div class="form-row">
+        <label>Indices, currencies &amp; crypto</label>
+        <div class="leagues-grid">
+          ${INDEX_OPTIONS.map(([id, label, emoji]) => `
+            <label class="league-chip">
+              <input type="checkbox" data-stock-index="${esc(id)}" ${indices.has(id) ? 'checked' : ''}>
+              <span>${emoji} ${esc(label)}</span>
+            </label>
+          `).join('')}
+        </div>
+      </div>
+      <div class="form-row">
+        <label for="stocks-overview-extras">Additional tickers</label>
+        <input id="stocks-overview-extras" type="text" value="${esc(overviewExtras)}" placeholder="AAPL, MSFT, TSLA">
+        <p class="muted" style="margin-top:6px;font-size:12px;">Comma-separated Yahoo Finance symbols. Appear under the indices row.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span class="icon">📊</span> Stock Big Board</div>
+      <p class="muted">Grid of tiles, red or green based on the day's change. Pick which figure each tile leads with.</p>
+      <div class="form-row">
+        <label for="stocks-bigboard-symbols">Tickers</label>
+        <input id="stocks-bigboard-symbols" type="text" value="${esc(bigBoard)}" placeholder="AAPL, MSFT, NVDA, GOOGL, AMZN, META, TSLA">
+        <p class="muted" style="margin-top:6px;font-size:12px;">Comma-separated. Tiles wrap automatically; ~8–16 looks best on a 1080p TV.</p>
+      </div>
+      <div class="form-row">
+        <label>Display change as</label>
+        <div style="display:flex;gap:18px;align-items:center;">
+          <label class="toggle-row"><input type="radio" name="bb-mode" value="percent" ${mode === 'percent' ? 'checked' : ''}><span>Percent (%)</span></label>
+          <label class="toggle-row"><input type="radio" name="bb-mode" value="dollar"  ${mode === 'dollar'  ? 'checked' : ''}><span>Dollar amount ($)</span></label>
+        </div>
+      </div>
+    </div>
+
+    <div class="btn-row"><button class="btn btn-primary" id="save-stocks">💾 Save</button></div>
+  `;
+
+  $('save-stocks').addEventListener('click', async () => {
+    const stockIndices = Array.from(document.querySelectorAll('[data-stock-index]'))
+      .filter(c => c.checked)
+      .map(c => c.dataset.stockIndex);
+    const parseList = (s) => String(s || '')
+      .split(/[,\s]+/)
+      .map(t => t.trim().toUpperCase())
+      .filter(Boolean)
+      .slice(0, 50);
+    const stockOverviewSymbols = parseList($('stocks-overview-extras').value);
+    const stockBigBoardSymbols = parseList($('stocks-bigboard-symbols').value);
+    const stockBigBoardMode = document.querySelector('input[name="bb-mode"]:checked')?.value === 'dollar' ? 'dollar' : 'percent';
+    await saveCurrentConfig({ stockIndices, stockOverviewSymbols, stockBigBoardSymbols, stockBigBoardMode });
+    toast('Stocks settings saved');
   });
 }
 
