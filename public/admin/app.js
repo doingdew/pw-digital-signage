@@ -1241,7 +1241,6 @@ function renderStocksTab(body, cfg) {
   ];
   const indices = new Set(cfg.stockIndices || []);
   const overviewExtras = (cfg.stockOverviewSymbols || []).join(', ');
-  const bigBoard       = (cfg.stockBigBoardSymbols  || []).join(', ');
   const mode           = cfg.stockBigBoardMode === 'dollar' ? 'dollar' : 'percent';
 
   body.innerHTML = `
@@ -1268,18 +1267,14 @@ function renderStocksTab(body, cfg) {
 
     <div class="card">
       <div class="card-title"><span class="icon">📊</span> Stock Big Board</div>
-      <p class="muted">Grid of tiles, red or green based on the day's change. Pick which figure each tile leads with.</p>
+      <p class="muted">Sector treemap of the entire S&amp;P 500. Each tile is sized by index weight (≈ market cap) and coloured red or green by the day's change.</p>
       <div class="form-row">
-        <label for="stocks-bigboard-symbols">Tickers</label>
-        <input id="stocks-bigboard-symbols" type="text" value="${esc(bigBoard)}" placeholder="AAPL, MSFT, NVDA, GOOGL, AMZN, META, TSLA">
-        <p class="muted" style="margin-top:6px;font-size:12px;">Comma-separated. Tiles wrap automatically; ~8–16 looks best on a 1080p TV.</p>
-      </div>
-      <div class="form-row">
-        <label>Display change as</label>
+        <label>Tile change label</label>
         <div style="display:flex;gap:18px;align-items:center;">
           <label class="toggle-row"><input type="radio" name="bb-mode" value="percent" ${mode === 'percent' ? 'checked' : ''}><span>Percent (%)</span></label>
           <label class="toggle-row"><input type="radio" name="bb-mode" value="dollar"  ${mode === 'dollar'  ? 'checked' : ''}><span>Dollar amount ($)</span></label>
         </div>
+        <p class="muted" style="margin-top:6px;font-size:12px;">Constituents are pulled from a public S&amp;P 500 list and cached for 24 hours; quotes refresh in the background every 60 seconds.</p>
       </div>
     </div>
 
@@ -1296,9 +1291,8 @@ function renderStocksTab(body, cfg) {
       .filter(Boolean)
       .slice(0, 50);
     const stockOverviewSymbols = parseList($('stocks-overview-extras').value);
-    const stockBigBoardSymbols = parseList($('stocks-bigboard-symbols').value);
     const stockBigBoardMode = document.querySelector('input[name="bb-mode"]:checked')?.value === 'dollar' ? 'dollar' : 'percent';
-    await saveCurrentConfig({ stockIndices, stockOverviewSymbols, stockBigBoardSymbols, stockBigBoardMode });
+    await saveCurrentConfig({ stockIndices, stockOverviewSymbols, stockBigBoardMode });
     toast('Stocks settings saved');
   });
 }

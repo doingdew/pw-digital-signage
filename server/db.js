@@ -187,12 +187,12 @@ function defaultScreenConfig() {
     // trends
     trendsCountry: 'US',
 
-    // Stocks — markets overview row + selectable big-board grid
+    // Stocks — markets overview row uses these; the big board zone shows the
+    // entire S&P 500 (sector-grouped treemap, sized by index weight).
     // Yahoo Finance symbols. Indices use ^ prefix; crypto is BTC-USD style;
     // forex via ticker like DX-Y.NYB (US dollar index).
     stockIndices: ['^DJI', '^IXIC', '^GSPC', 'DX-Y.NYB', 'BTC-USD'],
     stockOverviewSymbols: [],
-    stockBigBoardSymbols: ['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN', 'META', 'TSLA', 'BRK-B'],
     stockBigBoardMode: 'percent',  // 'percent' | 'dollar'
 
     // radar

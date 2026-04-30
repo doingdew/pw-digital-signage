@@ -830,7 +830,11 @@ function goToZone(index, manual = false) {
   if (zid === 'zone-slack') renderSlack();   // refresh "5m ago" labels
   if (zid === 'zone-sports' || zid === 'zone-sports-results' || zid === 'zone-sports-upcoming') fetchSportsScores();
   if (zid === 'zone-trends') refreshTrends();
-  if (zid === 'zone-stocks-overview' || zid === 'zone-stocks-bigboard') refreshStocks();
+  if (zid === 'zone-stocks-overview') refreshStocksOverview();
+  if (zid === 'zone-stocks-bigboard') {
+    // Zone just became visible — re-layout the treemap with non-zero size.
+    if (state.sp500) renderBigBoardTreemap(); else refreshStocksBigBoard();
+  }
   if (zid === 'zone-radar')  initRadar();
   if (zid === 'zone-traffic') updateTrafficMap();
   if (zid === 'zone-worldclocks') renderWorldClocks();
@@ -859,9 +863,7 @@ function shouldSkipZone(zid) {
     const n = (cfg.stockIndices?.length || 0) + (cfg.stockOverviewSymbols?.length || 0);
     return n === 0;
   }
-  if (zid === 'zone-stocks-bigboard') {
-    return !((state.config?.stockBigBoardSymbols || []).length);
-  }
+  // The big board now always has content (full S&P 500), so never skip.
   if (zid === 'zone-safety') {
     const all = state.config?.safetyMessages || [];
     const active = all.filter(x => typeof x === 'string' ? true : x?.enabled !== false);
@@ -1273,11 +1275,32 @@ const STOCK_INDEX_LABELS = {
 };
 
 function startStocks() {
-  refreshStocks();
-  // Server caches each symbol for 30s; polling every 60s keeps prices feeling
-  // live without hammering the upstream.
-  setInterval(refreshStocks, 60 * 1000);
+  refreshStocksOverview();
+  refreshStocksBigBoard();
+  // Markets overview polls slightly faster (small payload); big board pulls a
+  // 500-stock snapshot from a stale-while-revalidate server cache so this is
+  // mostly free server-side.
+  setInterval(refreshStocksOverview, 60 * 1000);
+  setInterval(refreshStocksBigBoard, 60 * 1000);
+  // Re-layout the treemap on viewport changes (orientation flip, font load).
+  window.addEventListener('resize', () => { renderBigBoardTreemap(); });
 }
+
+// Canonical order — keeps sector blocks in the same on-screen position from
+// one render to the next, even as weights shift.
+const GICS_SECTOR_ORDER = [
+  'Information Technology',
+  'Communication Services',
+  'Consumer Discretionary',
+  'Consumer Staples',
+  'Health Care',
+  'Financials',
+  'Industrials',
+  'Energy',
+  'Utilities',
+  'Materials',
+  'Real Estate',
+];
 
 function fmtPrice(n) {
   if (n == null || !isFinite(n)) return '—';
@@ -1293,18 +1316,17 @@ function fmtSignedPrice(n) {
   return sign + fmtPrice(Math.abs(n));
 }
 
-async function refreshStocks() {
+// ── Markets overview (small list of indices + extra tickers) ─────
+async function refreshStocksOverview() {
   const cfg = state.config || {};
-  const indices  = (cfg.stockIndices && cfg.stockIndices.length) ? cfg.stockIndices : [];
-  const ovExtra  = cfg.stockOverviewSymbols || [];
-  const bigBoard = cfg.stockBigBoardSymbols  || [];
+  const indices = (cfg.stockIndices && cfg.stockIndices.length) ? cfg.stockIndices : [];
+  const ovExtra = cfg.stockOverviewSymbols || [];
   const overviewSymbols = [...indices, ...ovExtra];
-  const allSymbols = Array.from(new Set([...overviewSymbols, ...bigBoard]));
-  if (!allSymbols.length) return;
+  if (!overviewSymbols.length) return;
 
   let quotes;
   try {
-    const r = await fetch(`/api/stocks/quotes?symbols=${encodeURIComponent(allSymbols.join(','))}`, { cache: 'no-cache' });
+    const r = await fetch(`/api/stocks/quotes?symbols=${encodeURIComponent(overviewSymbols.join(','))}`, { cache: 'no-cache' });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     quotes = (await r.json()).quotes || [];
   } catch (e) {
@@ -1312,67 +1334,206 @@ async function refreshStocks() {
   }
   const bySymbol = new Map(quotes.map(q => [q.symbol, q]));
 
-  // ── Markets overview ─────────────────────────────────────────
   const ovEl = $('stocks-overview-list');
-  if (ovEl) {
-    if (!overviewSymbols.length) {
-      ovEl.innerHTML = '<div class="trend-empty">No markets configured.</div>';
-    } else {
-      ovEl.innerHTML = overviewSymbols.map(sym => {
-        const q = bySymbol.get(sym);
-        const label = STOCK_INDEX_LABELS[sym] || (q?.name && q.name.length <= 24 ? q.name : sym);
-        if (!q || q.error) {
-          return `<div class="stock-row flat">
-            <div class="stock-label">${escHtml(label)}</div>
-            <div class="stock-price">—</div>
-            <div class="stock-change">—</div>
-          </div>`;
-        }
-        const ch = q.change ?? 0;
-        const cls = ch > 0 ? 'up' : ch < 0 ? 'down' : 'flat';
-        const arrow = ch > 0 ? '▲' : ch < 0 ? '▼' : '•';
-        const dol = fmtSignedPrice(q.change);
-        const pct = q.changePercent != null ? `${q.changePercent >= 0 ? '+' : ''}${q.changePercent.toFixed(2)}%` : '—';
-        return `<div class="stock-row ${cls}">
-          <div class="stock-label">${escHtml(label)}</div>
-          <div class="stock-price">${escHtml(fmtPrice(q.price))}</div>
-          <div class="stock-change">${arrow} ${escHtml(dol)} (${escHtml(pct)})</div>
-        </div>`;
-      }).join('');
+  if (!ovEl) return;
+  ovEl.innerHTML = overviewSymbols.map(sym => {
+    const q = bySymbol.get(sym);
+    const label = STOCK_INDEX_LABELS[sym] || (q?.name && q.name.length <= 24 ? q.name : sym);
+    if (!q || q.error) {
+      return `<div class="stock-row flat">
+        <div class="stock-label">${escHtml(label)}</div>
+        <div class="stock-price">—</div>
+        <div class="stock-change">—</div>
+      </div>`;
     }
-  }
+    const ch = q.change ?? 0;
+    const cls = ch > 0 ? 'up' : ch < 0 ? 'down' : 'flat';
+    const arrow = ch > 0 ? '▲' : ch < 0 ? '▼' : '•';
+    const pct = q.changePercent != null ? `${q.changePercent >= 0 ? '+' : ''}${q.changePercent.toFixed(2)}%` : '—';
+    return `<div class="stock-row ${cls}">
+      <div class="stock-label">${escHtml(label)}</div>
+      <div class="stock-price">${escHtml(fmtPrice(q.price))}</div>
+      <div class="stock-change">${arrow} ${escHtml(pct)}</div>
+    </div>`;
+  }).join('');
+  setText('stocks-overview-updated', `Updated: ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}`);
+}
 
-  // ── Big board ────────────────────────────────────────────────
+// ── Big board: full S&P 500 sector treemap ────────────────────────
+// state.sp500 caches the latest payload so a layout-only re-render (e.g. on
+// resize, or when the zone first becomes visible) doesn't trigger a refetch.
+state.sp500 = null;
+
+async function refreshStocksBigBoard() {
+  try {
+    const r = await fetch('/api/stocks/sp500', { cache: 'no-cache' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const j = await r.json();
+    state.sp500 = j.stocks || [];
+    state.sp500At = j.snapshotAt || Date.now();
+  } catch (e) {
+    return;
+  }
+  renderBigBoardTreemap();
+}
+
+// Squarified treemap (Bruls et al.). Returns absolute-positioned rects that
+// fill the {x,y,w,h} container, sized by each item's `value`.
+function squarify(items, x, y, w, h) {
+  if (!items.length || w <= 0 || h <= 0) return [];
+  const sorted = [...items].sort((a, b) => b.value - a.value).filter(i => i.value > 0);
+  if (!sorted.length) return [];
+  const totalValue = sorted.reduce((s, i) => s + i.value, 0);
+  const scale = (w * h) / totalValue;
+  const out = [];
+
+  let remaining = sorted.map(it => ({ ref: it, area: it.value * scale }));
+  let cx = x, cy = y, cw = w, ch = h;
+
+  const worstAspect = (sumArea, row, side) => {
+    const stripDim = sumArea / side;
+    let worst = 1;
+    for (const it of row) {
+      const itDim = it.area / stripDim;
+      const ar = Math.max(itDim, stripDim) / Math.max(0.0001, Math.min(itDim, stripDim));
+      if (ar > worst) worst = ar;
+    }
+    return worst;
+  };
+
+  while (remaining.length) {
+    const side = Math.min(cw, ch);
+    if (side <= 0) break;
+    let row = [remaining[0]];
+    let rowSum = remaining[0].area;
+    let bestRatio = worstAspect(rowSum, row, side);
+    let i = 1;
+    for (; i < remaining.length; i++) {
+      const next = remaining[i];
+      const newSum = rowSum + next.area;
+      const newRow = row.concat([next]);
+      const newRatio = worstAspect(newSum, newRow, side);
+      if (newRatio > bestRatio) break;
+      row = newRow;
+      rowSum = newSum;
+      bestRatio = newRatio;
+    }
+
+    if (cw >= ch) {
+      const colW = rowSum / ch;
+      let py = cy;
+      for (const it of row) {
+        const itH = it.area / colW;
+        out.push({ x: cx, y: py, w: colW, h: itH, ref: it.ref });
+        py += itH;
+      }
+      cx += colW; cw -= colW;
+    } else {
+      const rowH = rowSum / cw;
+      let px = cx;
+      for (const it of row) {
+        const itW = it.area / rowH;
+        out.push({ x: px, y: cy, w: itW, h: rowH, ref: it.ref });
+        px += itW;
+      }
+      cy += rowH; ch -= rowH;
+    }
+    remaining = remaining.slice(row.length);
+  }
+  return out;
+}
+
+// Pick a tile background colour from change percent. Capped at ±3% so the
+// extremes don't all look identical to a 10% mover. Magenta-ish = no data.
+function bbTileColor(changePct) {
+  if (changePct == null || !isFinite(changePct)) return 'rgba(120,120,140,0.25)';
+  const pct = Math.max(-3, Math.min(3, changePct));
+  if (Math.abs(pct) < 0.05) return 'rgba(80,90,110,0.55)';
+  const intensity = Math.min(1, Math.abs(pct) / 3);   // 0..1
+  if (pct > 0) {
+    // Green: blend toward bright #16c784
+    const a = 0.30 + intensity * 0.55;
+    return `rgba(22, 199, 132, ${a.toFixed(3)})`;
+  } else {
+    const a = 0.30 + intensity * 0.55;
+    return `rgba(234, 57, 67, ${a.toFixed(3)})`;
+  }
+}
+
+function renderBigBoardTreemap() {
   const bbEl = $('stocks-bigboard-grid');
-  if (bbEl) {
-    const mode = cfg.stockBigBoardMode === 'dollar' ? 'dollar' : 'percent';
-    setText('stocks-bigboard-mode-tag', mode === 'dollar' ? 'BY $ CHANGE' : 'BY % CHANGE');
-    if (!bigBoard.length) {
-      bbEl.innerHTML = '<div class="trend-empty">No tickers configured.</div>';
-    } else {
-      bbEl.innerHTML = bigBoard.map(sym => {
-        const q = bySymbol.get(sym);
-        if (!q || q.error) {
-          return `<div class="bb-tile bb-flat"><div class="bb-symbol">${escHtml(sym)}</div><div class="bb-error">no data</div></div>`;
-        }
-        const ch = q.change ?? 0;
-        const cls = ch > 0 ? 'bb-up' : ch < 0 ? 'bb-down' : 'bb-flat';
-        const arrow = ch > 0 ? '▲' : ch < 0 ? '▼' : '•';
-        const display = mode === 'dollar'
-          ? fmtSignedPrice(q.change)
-          : (q.changePercent != null ? `${q.changePercent >= 0 ? '+' : ''}${q.changePercent.toFixed(2)}%` : '—');
-        return `<div class="bb-tile ${cls}">
-          <div class="bb-symbol">${escHtml(sym)}</div>
-          <div class="bb-price">${escHtml(fmtPrice(q.price))}</div>
-          <div class="bb-change">${arrow} ${escHtml(display)}</div>
-        </div>`;
-      }).join('');
-    }
+  if (!bbEl) return;
+  const stocks = state.sp500;
+  if (!stocks || !stocks.length) {
+    bbEl.innerHTML = '<div class="trend-empty">Loading S&amp;P 500…</div>';
+    return;
   }
+  const cfg = state.config || {};
+  const mode = cfg.stockBigBoardMode === 'dollar' ? 'dollar' : 'percent';
+  setText('stocks-bigboard-mode-tag', mode === 'dollar' ? 'BY $ CHANGE' : 'BY % CHANGE');
 
-  const stamp = `Updated: ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}`;
-  setText('stocks-overview-updated', stamp);
-  setText('stocks-bigboard-updated', stamp);
+  // Container size is required for layout. If hidden (display:none on a
+  // non-active zone) the rect is 0×0 — defer until the zone becomes active.
+  const rect = bbEl.getBoundingClientRect();
+  if (rect.width < 100 || rect.height < 100) return;
+  const W = rect.width, H = rect.height;
+
+  // Group by sector and sum weights for the top-level treemap.
+  const bySector = new Map();
+  for (const s of stocks) {
+    if (!bySector.has(s.sector)) bySector.set(s.sector, []);
+    bySector.get(s.sector).push(s);
+  }
+  const sectors = GICS_SECTOR_ORDER
+    .filter(name => bySector.has(name))
+    .concat([...bySector.keys()].filter(name => !GICS_SECTOR_ORDER.includes(name)))
+    .map(name => {
+      const list = bySector.get(name);
+      const value = list.reduce((s, x) => s + (x.weight || 0), 0);
+      return { name, list, value };
+    });
+
+  const sectorRects = squarify(sectors, 0, 0, W, H);
+  const SECTOR_LABEL_H = 22;
+  const TILE_GAP = 1;
+
+  let html = '';
+  for (const sr of sectorRects) {
+    const sec = sr.ref;
+    // Sector wrapper — relative-positioned, with label band on top.
+    html += `<div class="bb-sector" style="left:${sr.x}px;top:${sr.y}px;width:${sr.w}px;height:${sr.h}px;">
+      <div class="bb-sector-label">${escHtml(sec.name.toUpperCase())}</div>
+      <div class="bb-sector-tiles" style="width:${sr.w}px;height:${Math.max(0, sr.h - SECTOR_LABEL_H)}px;">`;
+    const items = sec.list.map(s => ({ ...s, value: s.weight || 0 }));
+    const tileRects = squarify(items, 0, 0, sr.w, Math.max(0, sr.h - SECTOR_LABEL_H));
+    for (const tr of tileRects) {
+      const s = tr.ref;
+      const color = bbTileColor(s.changePercent);
+      const tw = Math.max(0, tr.w - TILE_GAP);
+      const th = Math.max(0, tr.h - TILE_GAP);
+      // Choose what fits: full tile shows symbol + price + change; medium
+      // drops the price; tiny tiles show just the symbol.
+      const showLines = tw >= 60 && th >= 50 ? 3 : (tw >= 40 && th >= 30 ? 2 : 1);
+      // Symbol size scales with the smaller dimension so big tiles draw bold.
+      const symFs = Math.max(8, Math.min(28, Math.floor(Math.min(tw, th) * 0.32)));
+      const subFs = Math.max(8, Math.min(16, Math.floor(symFs * 0.55)));
+      const ch = s.change ?? 0;
+      const arrow = ch > 0 ? '▲' : ch < 0 ? '▼' : '';
+      const display = s.changePercent == null
+        ? '—'
+        : (mode === 'dollar'
+            ? fmtSignedPrice(s.change)
+            : `${s.changePercent >= 0 ? '+' : ''}${s.changePercent.toFixed(2)}%`);
+      html += `<div class="bb-tm-tile" style="left:${tr.x}px;top:${tr.y}px;width:${tw}px;height:${th}px;background:${color};">`;
+      html += `<div class="bb-tm-symbol" style="font-size:${symFs}px;">${escHtml(s.symbol)}</div>`;
+      if (showLines >= 3) html += `<div class="bb-tm-price" style="font-size:${Math.floor(subFs * 0.85)}px;">${escHtml(fmtPrice(s.price))}</div>`;
+      if (showLines >= 2) html += `<div class="bb-tm-change" style="font-size:${subFs}px;">${escHtml(arrow)} ${escHtml(display)}</div>`;
+      html += `</div>`;
+    }
+    html += `</div></div>`;
+  }
+  bbEl.innerHTML = html;
+  setText('stocks-bigboard-updated', `Updated: ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}`);
 }
 
 // ── Trends ───────────────────────────────────────────────────────
