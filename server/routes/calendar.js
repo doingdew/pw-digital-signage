@@ -294,21 +294,33 @@ router.get('/rooms/public/:slug', async (req, res) => {
   const soonMs = (cfg.meetingRoomsSoonMins ?? 30) * 60 * 1000;
   const now = Date.now();
 
+  // Recurring meetings (weekly standups etc.) only carry their ORIGINAL
+  // DTSTART/DTEND in the iCal feed; we have to expand the RRULE to discover
+  // today's occurrence. Window = previous 12h (to catch a meeting still in
+  // progress that started before midnight) → 24h ahead (covers the "soon"
+  // band even for the largest practical soonMins value).
+  const winStart = now - 12 * 60 * 60 * 1000;
+  const winEnd   = now + 24 * 60 * 60 * 1000;
+
   const out = await Promise.all(rooms.map(async (r) => {
     const base = { name: r.name };
     if (!r.url) return { ...base, status: 'unconfigured' };
-    let events;
-    try { events = await fetchIcs(r.url); }
+    let raw;
+    try { raw = await fetchIcs(r.url); }
     catch (e) { return { ...base, status: 'error', error: e.message }; }
-    // Find currently-happening event (start <= now < end-or-fallback).
-    const current = events.find(ev => {
+    // Expand recurrences within the window, then resort by start.
+    const expanded = [];
+    for (const ev of raw) expanded.push(...expandRecurrence(ev, winStart, winEnd));
+    expanded.sort((a, b) => (a.start?.ts || 0) - (b.start?.ts || 0));
+    // Currently-happening event (start <= now < end-or-fallback).
+    const current = expanded.find(ev => {
       const s = ev.start?.ts || 0;
       const e = ev.end?.ts || (s + 60 * 60 * 1000); // default 1h if no DTEND
       return s <= now && now < e;
     });
     if (current) return { ...base, status: 'busy', currentEnd: current.end?.iso || null };
-    // Find next future event within "soon" window.
-    const next = events.find(ev => (ev.start?.ts || 0) > now);
+    // Next future event.
+    const next = expanded.find(ev => (ev.start?.ts || 0) > now);
     if (next && (next.start.ts - now) <= soonMs) {
       return { ...base, status: 'soon', nextStart: next.start.iso };
     }
