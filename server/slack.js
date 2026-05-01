@@ -239,4 +239,66 @@ function status() {
   };
 }
 
-module.exports = { start, stop, testConnection, status };
+// Post a camera-trigger alert to a Slack channel: a one-line text message and
+// an attached snapshot image. Uses the bot already configured for the inbound
+// listener. Returns { ok, error? }.
+async function postCameraAlert({ channel, text, imageBuffer, filename }) {
+  if (!web) {
+    // No active client — try to spin one up using the saved token, since the
+    // listener may have failed to start (no app token, etc.) but we still want
+    // outbound notifications to work.
+    try {
+      const cfg = getSetting('slack') || {};
+      if (!cfg.botToken) throw new Error('Slack bot token not configured');
+      if (!WebClient) throw new Error('Slack packages not installed');
+      web = new WebClient(cfg.botToken);
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  }
+  if (!channel) return { ok: false, error: 'Channel ID required' };
+  // Helper to extract the most useful detail Slack gives us — `error` is the
+  // short code (missing_scope, not_in_channel, …) and `needed` lists the
+  // scope(s) the call requires when it's a scope error.
+  const errStr = (e) => {
+    const d = e?.data || {};
+    const parts = [];
+    if (d.error)  parts.push(d.error);
+    if (d.needed) parts.push(`needed=${d.needed}`);
+    if (!parts.length && e.message) parts.push(e.message);
+    return parts.join(' · ');
+  };
+  try {
+    if (imageBuffer && imageBuffer.length) {
+      try {
+        // files.uploadV2 handles the get-upload-url + complete-upload dance
+        // for us and supports the initial_comment arg so the message and the
+        // file share a single Slack post.
+        await web.filesUploadV2({
+          channel_id: channel,
+          file: imageBuffer,
+          filename: filename || `snapshot-${Date.now()}.jpg`,
+          initial_comment: text,
+        });
+        return { ok: true };
+      } catch (uploadErr) {
+        // If the file upload fails on a scope/permission issue, fall back to
+        // a plain text post so the alert still gets through. Anything else
+        // (network, channel_not_found, …) bubbles up as a normal failure.
+        const code = uploadErr?.data?.error || '';
+        if (code === 'missing_scope' || code === 'not_allowed_token_type') {
+          await web.chat.postMessage({ channel, text: `${text}\n_(snapshot omitted — bot lacks files:write scope)_` });
+          return { ok: true, warning: `file upload failed (${errStr(uploadErr)}), sent text only` };
+        }
+        throw uploadErr;
+      }
+    } else {
+      await web.chat.postMessage({ channel, text });
+      return { ok: true };
+    }
+  } catch (e) {
+    return { ok: false, error: errStr(e) };
+  }
+}
+
+module.exports = { start, stop, testConnection, status, postCameraAlert };

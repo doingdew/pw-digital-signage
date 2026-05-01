@@ -25,6 +25,11 @@
 <!-- ZONE DOTS -->
 <div id="zone-dots"></div>
 
+<!-- GLOBAL LAST-REFRESHED — shows the active zone's most recent data refresh
+     time, centered just above the dots. Hidden for zones without refreshable
+     data (clock, world clocks, sun arc, etc.). -->
+<div id="last-refreshed"></div>
+
 <!-- PERSISTENT MESSAGE TICKER (shown for messageFooterMinutes after a broadcast) -->
 <div id="message-ticker">
   <div id="ticker-icon">📢</div>
@@ -101,19 +106,48 @@
 </div>
 
 <div class="zone" id="zone-shipments">
-  <div class="zone-title" style="align-self:flex-start;">📦 Incoming Shipments</div>
+  <div class="zone-title" style="align-self:flex-start;">Incoming Shipments</div>
   <table id="shipments-table">
-    <thead><tr><th>Ref #</th><th>Supplier / Origin</th><th>Items</th><th>ETA</th><th>Status</th><th>Notes</th></tr></thead>
+    <thead id="shipments-head"></thead>
     <tbody id="shipments-body">
-      <tr><td colspan="6" style="color:var(--subtext);text-align:center;font-size:18px;padding:40px;">Configure Google Sheet URL in admin</td></tr>
+      <tr><td style="color:var(--subtext);text-align:center;font-size:18px;padding:40px;">Configure Google Sheet URL in admin</td></tr>
     </tbody>
   </table>
-  <div id="shipments-updated">Last updated: —</div>
+</div>
+
+<div class="zone" id="zone-warehouse">
+  <div class="zone-title" style="align-self:flex-start;">Warehouse</div>
+  <div id="warehouse-grid">
+    <div class="wh-panel" data-panel="recv">
+      <div class="wh-orb"></div>
+      <div class="wh-icon">📦</div>
+      <div class="wh-kicker">Receiving</div>
+      <div class="wh-count" data-role="count">—</div>
+      <div class="wh-sub">awaiting receipt</div>
+      <ul class="wh-list" data-role="list"></ul>
+    </div>
+    <div class="wh-panel" data-panel="pick">
+      <div class="wh-orb"></div>
+      <div class="wh-icon">📋</div>
+      <div class="wh-kicker">Orders to Pick</div>
+      <div class="wh-count" data-role="count">—</div>
+      <div class="wh-sub">on the floor</div>
+      <ul class="wh-list" data-role="list"></ul>
+    </div>
+    <div class="wh-panel" data-panel="ship">
+      <div class="wh-orb"></div>
+      <div class="wh-icon">🚚</div>
+      <div class="wh-kicker">Orders to Ship</div>
+      <div class="wh-count" data-role="count">—</div>
+      <div class="wh-sub">ready to ship</div>
+      <ul class="wh-list" data-role="list"></ul>
+    </div>
+  </div>
 </div>
 
 <div class="zone" id="zone-slack">
   <div id="slack-header">
-    <span style="font-size:20px;color:var(--subtext);letter-spacing:3px;text-transform:uppercase;">💬 Team Messages</span>
+    <span style="font-size:20px;color:var(--subtext);letter-spacing:3px;text-transform:uppercase;">Team Messages</span>
   </div>
   <div id="slack-message-display">
     <div id="slack-empty">No messages yet — send one from admin</div>
@@ -127,7 +161,7 @@
 </div>
 
 <div class="zone" id="zone-kpi">
-  <div class="zone-title" style="align-self:flex-start;">📊 Today's Performance</div>
+  <div class="zone-title" style="align-self:flex-start;">Today's Performance</div>
   <div id="kpi-grid"></div>
   <div style="font-size:13px;color:var(--subtext);margin-top:24px;">Refreshes every 5 min</div>
 </div>
@@ -149,38 +183,32 @@
   <div id="cam-updated"></div>
 </div>
 
-<div class="zone" id="zone-sports">
-  <div class="zone-title" style="align-self:flex-start;">🏆 Sports Scores</div>
-  <div id="sports-leagues"><div style="color:var(--subtext);font-size:18px;font-weight:200;">Loading scores…</div></div>
-  <div id="sports-updated"></div>
-</div>
-
 <div class="zone" id="zone-sports-results">
-  <div class="zone-title" style="align-self:flex-start;">🏆 Recent Results <span style="color:var(--subtext);font-size:14px;letter-spacing:2px;margin-left:12px;">LAST 24 HOURS</span></div>
+  <div class="zone-title" style="align-self:flex-start;">Recent Results <span style="color:var(--subtext);font-size:14px;letter-spacing:2px;margin-left:12px;">LAST 24 HOURS</span></div>
   <div id="sports-results-leagues"><div style="color:var(--subtext);font-size:18px;font-weight:200;">Loading scores…</div></div>
   <div id="sports-results-updated"></div>
 </div>
 
 <div class="zone" id="zone-sports-upcoming">
-  <div class="zone-title" style="align-self:flex-start;">🏆 Coming Up <span style="color:var(--subtext);font-size:14px;letter-spacing:2px;margin-left:12px;">NEXT 24 HOURS</span></div>
+  <div class="zone-title" style="align-self:flex-start;">Coming Up <span style="color:var(--subtext);font-size:14px;letter-spacing:2px;margin-left:12px;">NEXT 24 HOURS</span></div>
   <div id="sports-upcoming-leagues"><div style="color:var(--subtext);font-size:18px;font-weight:200;">Loading scores…</div></div>
   <div id="sports-upcoming-updated"></div>
 </div>
 
 <div class="zone" id="zone-stocks-overview">
-  <div class="zone-title">📈 Markets</div>
+  <div class="zone-title">Markets</div>
   <div id="stocks-overview-list"><div class="trend-empty">Loading…</div></div>
   <div id="stocks-overview-updated"></div>
 </div>
 
 <div class="zone" id="zone-stocks-bigboard">
-  <div class="zone-title" style="align-self:flex-start;">📊 Big Board <span id="stocks-bigboard-mode-tag" style="color:var(--subtext);font-size:14px;letter-spacing:2px;margin-left:12px;"></span></div>
+  <div class="zone-title" style="align-self:flex-start;">Big Board <span id="stocks-bigboard-mode-tag" style="color:var(--subtext);font-size:14px;letter-spacing:2px;margin-left:12px;"></span></div>
   <div id="stocks-bigboard-grid"><div class="trend-empty">Loading…</div></div>
   <div id="stocks-bigboard-updated"></div>
 </div>
 
 <div class="zone" id="zone-trends">
-  <div class="zone-title" style="align-self:flex-start;">🔥 What's Trending</div>
+  <div class="zone-title" style="align-self:flex-start;">What's Trending</div>
   <div id="trends-wrap">
     <div class="trend-col">
       <div class="trend-col-title">📰 Top Headlines</div>
@@ -195,13 +223,13 @@
 </div>
 
 <div class="zone" id="zone-radar">
-  <div id="radar-title">🌧️ Weather Radar — <span id="radar-station-label">—</span></div>
+  <div id="radar-title">Weather Radar — <span id="radar-station-label">—</span></div>
   <div id="radar-map-wrap"><div id="radar-map"></div></div>
   <div id="radar-meta">Google Maps base · NWS NEXRAD overlay</div>
 </div>
 
 <div class="zone" id="zone-traffic">
-  <div id="traffic-title">🚗 Traffic — <span id="traffic-label-display">—</span></div>
+  <div id="traffic-title">Traffic — <span id="traffic-label-display">—</span></div>
   <div id="traffic-map-wrap"><div id="traffic-map"></div></div>
   <div id="traffic-meta">Google Maps live traffic</div>
 </div>
@@ -219,7 +247,7 @@
 </div>
 
 <div class="zone" id="zone-sunarc">
-  <div id="sunarc-title">☀️ <span id="sunarc-label">Today</span></div>
+  <div id="sunarc-title"><span id="sunarc-label">Today</span></div>
   <div id="sunarc-wrap">
     <svg id="sunarc-svg" viewBox="0 0 800 400" preserveAspectRatio="xMidYMid meet"></svg>
   </div>
@@ -232,12 +260,12 @@
 </div>
 
 <div class="zone" id="zone-calendar">
-  <div class="zone-title" style="align-self:flex-start;">📅 Upcoming Events</div>
+  <div class="zone-title" style="align-self:flex-start;">Upcoming Events</div>
   <div id="calendar-list"><div class="trend-empty">Loading…</div></div>
 </div>
 
 <div class="zone" id="zone-meetings">
-  <div class="zone-title" style="align-self:flex-start;">🚪 Meeting Rooms</div>
+  <div class="zone-title" style="align-self:flex-start;">Meeting Rooms</div>
   <div id="meetings-grid"><div class="trend-empty">Loading…</div></div>
   <div id="meetings-updated"></div>
 </div>
@@ -261,8 +289,9 @@
   <div id="camera-alert-banner"><span class="alert-icon">🚛</span> DELIVERY ALERT — VEHICLE AT GATE <span class="alert-icon">🚨</span></div>
   <div id="camera-feed-area">
     <div id="camera-placeholder"><div class="cam-icon">📷</div><p>Camera Feed</p></div>
-    <iframe id="camera-iframe" style="display:none;"></iframe>
-    <video  id="camera-video"  style="display:none;" autoplay muted playsinline></video>
+    <iframe id="camera-iframe"   style="display:none;"></iframe>
+    <video  id="camera-video"    style="display:none;" autoplay muted playsinline></video>
+    <img    id="camera-snapshot" style="display:none;width:100%;height:100%;object-fit:contain;" alt="">
   </div>
 </div>
 

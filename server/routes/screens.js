@@ -39,6 +39,7 @@ const stmts = {
   bySlug:  db.prepare('SELECT * FROM screens WHERE slug = ?'),
   insert:  db.prepare('INSERT INTO screens (slug, name, config_json) VALUES (?, ?, ?)'),
   update:  db.prepare('UPDATE screens SET name = ?, config_json = ?, updated_at = ? WHERE id = ?'),
+  updateSlug: db.prepare('UPDATE screens SET slug = ?, updated_at = ? WHERE id = ?'),
   delete:  db.prepare('DELETE FROM screens WHERE id = ?'),
 };
 
@@ -129,7 +130,17 @@ router.post('/', requireAuth, (req, res) => {
 
 // Keys that have been promoted to global server-wide settings — silently strip
 // them from per-screen config writes so the global value is the sole source.
-const GLOBAL_KEYS = ['googleMapsApiKey', 'unifiHost', 'unifiApiKey', 'unifiProxyUrl'];
+// `unifiApiKey` is kept for backward-compat with old saved screens that still
+// have the legacy combined key in their config_json (settings.js maps it onto
+// the new Protect key on read).
+const GLOBAL_KEYS = [
+  'googleMapsApiKey',
+  'unifiHost',
+  'unifiApiKey',          // legacy combined token (back-compat)
+  'unifiAccessApiKey',
+  'unifiProtectApiKey',
+  'unifiProxyUrl',
+];
 
 router.put('/:slug', requireAuth, (req, res) => {
   const row = stmts.bySlug.get(req.params.slug);
@@ -148,6 +159,33 @@ router.put('/:slug', requireAuth, (req, res) => {
   const updated = stmts.byId.get(row.id);
   // Push the merged-with-globals config out to connected signage clients.
   wsHub.broadcast(updated.slug, { type: 'CONFIG_UPDATE', config: withGlobals(JSON.parse(updated.config_json)) });
+  res.json(rowToApi(updated));
+});
+
+// Rename a screen's slug. The slug is the user-visible URL segment for the
+// signage page (/s/<slug>) so changing it gives admins a way to clean up
+// auto-generated slugs after the fact. Connected clients receive a
+// SLUG_CHANGED broadcast on the OLD slug so they can navigate to the new URL
+// without a manual page reload.
+router.post('/:slug/rename', requireAuth, (req, res) => {
+  const row = stmts.bySlug.get(req.params.slug);
+  if (!row) return res.status(404).json({ error: 'Screen not found' });
+  const requested = String((req.body && req.body.slug) || '').trim();
+  if (!requested) return res.status(400).json({ error: 'New slug required' });
+  // Run through slugify so the user can paste anything and we'll normalize
+  // it (lowercase, dashes for spaces/punctuation, max 60 chars). If the
+  // normalized form differs we still accept it but report the canonical form.
+  const normalized = slugify(requested);
+  if (!normalized) return res.status(400).json({ error: 'Slug must contain at least one letter or digit' });
+  if (normalized === row.slug) return res.json(rowToApi(row));
+  // Reject collisions explicitly so admins know why the rename failed —
+  // automatically appending -2 like uniqueSlug does on create would surprise.
+  if (stmts.bySlug.get(normalized)) return res.status(409).json({ error: `Slug "${normalized}" is already in use` });
+  const oldSlug = row.slug;
+  stmts.updateSlug.run(normalized, Date.now(), row.id);
+  const updated = stmts.byId.get(row.id);
+  // Tell any signage clients on the OLD slug to navigate to the new URL.
+  wsHub.broadcast(oldSlug, { type: 'SLUG_CHANGED', slug: normalized });
   res.json(rowToApi(updated));
 });
 

@@ -22,8 +22,10 @@ const settingsRoutes = require('./routes/settings');
 const templatesRoutes = require('./routes/templates');
 const unifiProxyRoutes = require('./routes/unifi');
 const stocksRoutes = require('./routes/stocks');
+const hikRoutes = require('./routes/hik');
 const slack = require('./slack');
 const unifi = require('./unifi');
+const hik = require('./hik');
 
 const PORT = Number(process.env.PORT || 3000);
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -58,6 +60,7 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/templates', templatesRoutes);
 app.use('/api/unifi', unifiProxyRoutes);
 app.use('/api/stocks', stocksRoutes);
+app.use('/api/hik', hikRoutes);
 
 // Diagnostic snapshot — memory + active handles + WS counts. Used to spot
 // slow leaks while the process is running. Auth-gated since it leaks process
@@ -135,6 +138,8 @@ server.listen(PORT, () => {
   slack.start().catch((e) => console.warn('[slack] start error:', e.message));
   // UniFi Access door-lock bridge — no-op if UNIFI_TOKEN is not set.
   unifi.start();
+  // Hikvision smart-event listener — no-op until enabled in admin.
+  try { hik.start(); } catch (e) { console.warn('[hik] start error:', e.message); }
 });
 
 // Clean shutdown.
@@ -143,6 +148,7 @@ process.on('SIGTERM', shutdown);
 function shutdown() {
   console.log('Shutting down…');
   slack.stop().catch(() => {});
+  try { hik.stop(); } catch (_) {}
   server.close(() => {
     try { db.close(); } catch (_) {}
     process.exit(0);

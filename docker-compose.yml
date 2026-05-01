@@ -13,12 +13,18 @@ services:
       #     alpine tar czf /backup/signage-data.tgz -C /data .
       - signage-data:/app/data
     environment:
-      # Override these for production. SESSION_SECRET MUST be a long random string.
-      SESSION_SECRET: "change-me-to-a-long-random-string-please"
+      # Sessions are stored server-side in SQLite (sessions table) and the
+      # cookie carries only an opaque random token, so there is no shared
+      # secret to configure. To rotate all sessions, restart the container
+      # after deleting rows from the `sessions` table.
+      #
       # Optional: change the listen port inside the container
       # PORT: "3000"
       # Optional: trust proxy headers (set to 1 if behind nginx/traefik)
       # TRUST_PROXY: "1"
+      # Optional: send the session cookie only over HTTPS. Enable this when
+      # the service is behind a TLS terminator (along with TRUST_PROXY=1).
+      # COOKIE_SECURE: "1"
       # UniFi credentials are now managed in the admin UI:
       #   admin → Settings → UniFi Protect & Access
       # The values below are only used as a fallback if the admin Settings

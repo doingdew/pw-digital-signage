@@ -22,6 +22,7 @@ const ZONE_META = {
   'zone-sunarc':      { label: 'Sun Arc',        icon: '☀️' },
   // Operational content
   'zone-shipments':   { label: 'Shipments',      icon: '📦' },
+  'zone-warehouse':   { label: 'Warehouse Dashboard', icon: '🏭' },
   'zone-kpi':         { label: 'KPI',            icon: '📊' },
   'zone-bignum':      { label: "Today's Number", icon: '💯' },
   'zone-safety':      { label: 'Safety',         icon: '⚠️' },
@@ -32,7 +33,6 @@ const ZONE_META = {
   'zone-motivation':  { label: 'Motivation',     icon: '✨' },
   // Live data
   'zone-weather':     { label: 'Weather',        icon: '🌤️' },
-  'zone-sports':      { label: 'Sports (combined, legacy)', icon: '🏆' },
   'zone-sports-results':  { label: 'Sports Results',  icon: '🏆' },
   'zone-sports-upcoming': { label: 'Sports Upcoming', icon: '🏆' },
   'zone-trends':      { label: 'Trends',         icon: '🔥' },
@@ -370,6 +370,7 @@ async function renderScreen(slug, tab) {
     <button class="btn btn-outline btn-sm" id="open-tv-btn">Open TV view ↗</button>
     <button class="btn btn-outline btn-sm" id="save-tpl-btn">💾 Save as Template</button>
     <button class="btn btn-outline btn-sm" id="rename-btn">Rename</button>
+    <button class="btn btn-outline btn-sm" id="change-url-btn">Change URL</button>
   `;
   $('open-tv-btn').addEventListener('click', () => window.open(`/s/${slug}`, '_blank'));
   $('save-tpl-btn').addEventListener('click', async () => {
@@ -402,6 +403,27 @@ async function renderScreen(slug, tab) {
     $('topbar-title').textContent = newName;
     toast('Renamed');
   });
+  $('change-url-btn').addEventListener('click', async () => {
+    const requested = await textPromptModal({
+      title: 'Change URL Slug',
+      label: 'New URL slug',
+      value: slug,
+      placeholder: 'e.g. main-lobby',
+      helpText: `The signage page will be served from /s/<slug>. Letters, numbers and dashes only — anything else gets normalized.`,
+      okText: 'Change URL',
+    });
+    if (!requested) return;
+    try {
+      const updated = await api(`/api/screens/${slug}/rename`, { method: 'POST', body: { slug: requested } });
+      // Server returns the canonical (slugified) form which may differ from
+      // what the user typed. Reload screens list and navigate to the new URL.
+      await loadScreens();
+      toast(`URL changed to /s/${updated.slug}`);
+      location.hash = `#/screens/${updated.slug}/${state.currentTab || 'zones'}`;
+    } catch (e) {
+      toast(e.message || 'Rename failed', true);
+    }
+  });
 
   // Two rows of tabs grouped by purpose.
   // Row 1 — Display: how the screen looks and behaves.
@@ -417,6 +439,7 @@ async function renderScreen(slug, tab) {
     ],
     [
       ['messages',   'Messages'],
+      ['warehouse',  'Warehouse'],
       ['kpi',        'KPI'],
       ['safety',     'Safety'],
       ['bignum',     "Today's Number"],
@@ -424,6 +447,7 @@ async function renderScreen(slug, tab) {
       ['calendar',   'Calendar'],
       ['meetings',   'Meeting Rooms'],
       ['cameras',    'Cameras'],
+      ['hikvision',  'Hikvision Cam'],
       ['slides',     'Slides'],
       ['weather',    'Weather'],
       ['sports',     'Sports'],
@@ -458,6 +482,7 @@ function renderTab(tab) {
   switch (tab) {
     case 'zones':       return renderZonesTab(body, cfg);
     case 'messages':    return renderMessagesTab(body, cfg);
+    case 'warehouse':   return renderWarehouseTab(body, cfg);
     case 'kpi':         return renderKpiTab(body, cfg);
     case 'safety':      return renderSafetyTab(body, cfg);
     case 'clock':       return renderClockTab(body, cfg);
@@ -474,6 +499,7 @@ function renderTab(tab) {
     case 'calendar':    return renderCalendarTab(body, cfg);
     case 'meetings':    return renderMeetingRoomsTab(body, cfg);
     case 'cameras':     return renderCamerasTab(body, cfg);
+    case 'hikvision':   return renderHikvisionTab(body, cfg);
     case 'slides':      return renderSlidesTab(body, cfg);
     case 'sports':      return renderSportsTab(body, cfg);
     case 'stocks':      return renderStocksTab(body, cfg);
@@ -676,6 +702,37 @@ function renderMessagesTab(body, cfg) {
     `).join('');
   }
   loadMsgLog();
+}
+
+// ── Tab: Warehouse Dashboard ─────────────────────────────────────
+// Three Google Sheet URLs feed the three panels on the signage zone. The
+// signage page only needs view access; just paste the standard share URLs.
+function renderWarehouseTab(body, cfg) {
+  const fields = [
+    { id: 'wh-recv', cfgKey: 'warehouseReceivingUrl', label: 'Warehouse Receiving', icon: '📦', hint: 'Sheet listing items pending receipt at the dock.' },
+    { id: 'wh-pick', cfgKey: 'warehousePickUrl',      label: 'Orders to Pick',       icon: '📋', hint: 'Open pick list — orders waiting to be picked.' },
+    { id: 'wh-ship', cfgKey: 'warehouseShipUrl',      label: 'Orders to Ship',       icon: '🚚', hint: 'Picked / packed orders ready for the carrier.' },
+  ];
+  body.innerHTML = `
+    <div class="card">
+      <div class="card-title"><span class="icon">🏭</span> Warehouse Dashboard</div>
+      <p class="muted">Each panel on the signage Warehouse zone counts non-empty rows in <strong>column A</strong> of the linked sheet (column A is treated as the order / PO identifier; row 1 is the header). Sheets must be shared as "Anyone with the link can view" so the signage browser can fetch the CSV export.</p>
+      ${fields.map(f => `
+        <div class="form-row">
+          <label>${esc(f.icon)} ${esc(f.label)}</label>
+          <input type="url" id="${f.id}" value="${esc(cfg[f.cfgKey] || '')}" placeholder="https://docs.google.com/spreadsheets/d/…">
+          <p class="muted" style="margin-top:4px;font-size:12px;">${esc(f.hint)}</p>
+        </div>
+      `).join('')}
+      <div class="btn-row"><button class="btn btn-primary" id="save-warehouse">💾 Save</button></div>
+    </div>
+  `;
+  $('save-warehouse').addEventListener('click', async () => {
+    const patch = {};
+    for (const f of fields) patch[f.cfgKey] = $(f.id).value.trim();
+    await saveCurrentConfig(patch);
+    toast('Warehouse links saved');
+  });
 }
 
 // ── Tab: KPI ─────────────────────────────────────────────────────
@@ -943,6 +1000,28 @@ function renderAppearanceTab(body, cfg) {
       <div class="btn-row"><button class="btn btn-primary" id="save-colors">💾 Save Custom</button></div>
     </div>
     <div class="card">
+      <div class="card-title"><span class="icon">✨</span> Ambient Background Motion</div>
+      <p class="muted">Slow-moving overlay on every zone. Pure CSS — zero extra CPU on the signage TV. Pattern is the visual style; intensity is how visible it is; speed controls how fast it animates.</p>
+      <div class="form-row">
+        <label>Pattern</label>
+        <select id="bg-motion-pattern" style="max-width:320px;">
+          <option value="off"    ${(cfg.bgMotionPattern || (cfg.bgMotion ? 'drift' : 'off')) === 'off'    ? 'selected' : ''}>Off</option>
+          <option value="drift"  ${(cfg.bgMotionPattern || (cfg.bgMotion ? 'drift' : 'off')) === 'drift'  ? 'selected' : ''}>Drift — soft white blobs</option>
+          <option value="aurora" ${cfg.bgMotionPattern === 'aurora' ? 'selected' : ''}>Aurora — coloured blobs</option>
+          <option value="stars"  ${cfg.bgMotionPattern === 'stars'  ? 'selected' : ''}>Stars — drifting dot field</option>
+          <option value="grid"   ${cfg.bgMotionPattern === 'grid'   ? 'selected' : ''}>Grid — panning lines</option>
+          <option value="waves"  ${cfg.bgMotionPattern === 'waves'  ? 'selected' : ''}>Waves — diagonal stripes</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Intensity</label>
+        <div style="display:flex;align-items:center;gap:12px;max-width:320px;">
+          <input type="range" id="bg-motion-intensity" min="0" max="100" step="5" value="${Number.isFinite(+cfg.bgMotionIntensity) ? +cfg.bgMotionIntensity : 60}" style="flex:1;min-width:0;">
+          <span id="bg-motion-intensity-val" style="min-width:42px;text-align:right;font-variant-numeric:tabular-nums;">${Number.isFinite(+cfg.bgMotionIntensity) ? +cfg.bgMotionIntensity : 60}%</span>
+        </div>
+      </div>
+    </div>
+    <div class="card">
       <div class="card-title"><span class="icon">📏</span> Top Header Size</div>
       <p class="muted">Scales the top menu bar — the logo, time, weather and date all grow or shrink together.</p>
       <div class="form-row">
@@ -986,6 +1065,19 @@ function renderAppearanceTab(body, cfg) {
   $('save-header-size').addEventListener('click', async () => {
     await saveCurrentConfig({ headerSize: $('header-size').value });
     toast('Header size saved');
+  });
+  $('bg-motion-pattern').addEventListener('change', async () => {
+    await saveCurrentConfig({ bgMotionPattern: $('bg-motion-pattern').value });
+    toast('Saved');
+  });
+  // Live preview of slider values while dragging; persist on release so we
+  // don't fire a config save on every pixel move.
+  const bgInt = $('bg-motion-intensity');
+  const bgIntVal = $('bg-motion-intensity-val');
+  bgInt.addEventListener('input', () => { bgIntVal.textContent = `${bgInt.value}%`; });
+  bgInt.addEventListener('change', async () => {
+    await saveCurrentConfig({ bgMotionIntensity: Number(bgInt.value) });
+    toast('Saved');
   });
   $('save-colors').addEventListener('click', async () => {
     await saveCurrentConfig({ bgColor: $('bg-hex').value, accentColor: $('accent-hex').value });
@@ -1070,20 +1162,35 @@ function renderAppearanceTab(body, cfg) {
 
 // ── Tab: Integrations (Google Sheet + Camera URL) ────────────────
 function renderIntegrationsTab(body, cfg) {
+  // Mutable working copy — the user reorders + toggles before saving.
+  let columns = (cfg.shipmentsColumns || []).slice();
+  let discovered = [];   // populated by the Discover button
+
   body.innerHTML = `
     <div class="card">
       <div class="card-title"><span class="icon">📦</span> Google Sheet — Shipments</div>
+      <p class="muted">Published CSV URL or any /edit Google Sheets link. The sheet must be either "Published to web → CSV" or shared as "Anyone with the link can view".</p>
       <div class="form-row">
-        <label>Published CSV URL</label>
-        <input type="url" id="sheet-url" value="${esc(cfg.googleSheetUrl || '')}" placeholder="https://docs.google.com/.../pub?output=csv">
+        <label>Sheet URL</label>
+        <input type="url" id="sheet-url" value="${esc(cfg.googleSheetUrl || '')}" placeholder="https://docs.google.com/spreadsheets/d/…">
       </div>
-      <div class="btn-row"><button class="btn btn-primary" id="save-sheet">💾 Save</button></div>
+      <div class="btn-row">
+        <button class="btn btn-primary" id="save-sheet">💾 Save URL</button>
+        <button class="btn btn-outline" id="discover-cols">🔍 Discover Columns</button>
+      </div>
+      <div id="ship-discover-status" class="muted" style="margin-top:8px;font-size:12px;"></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="icon">🧱</span> Visible Columns</div>
+      <p class="muted">Pick which columns appear in the Shipments table and the order they're shown. Click "Discover Columns" above to refresh the list from the live sheet. A "Status" badge is automatically appended based on Open Balance Qty.</p>
+      <div id="ship-cols"></div>
+      <div class="btn-row" style="margin-top:14px;"><button class="btn btn-primary" id="save-cols">💾 Save Columns</button></div>
     </div>
     <div class="card">
       <div class="card-title"><span class="icon">📸</span> Camera Overlay</div>
       <div class="form-row">
         <label>Camera Stream URL</label>
-        <input type="url" id="camera-url" value="${esc(cfg.cameraUrl || '')}" placeholder="http://192.168.1.x/stream">
+        <input type="url" id="camera-url" value="${esc(cfg.cameraUrl || '')}" placeholder="rtmp://… or http://… or .m3u8">
       </div>
       <div class="btn-row">
         <button class="btn btn-primary" id="save-camera">💾 Save</button>
@@ -1091,9 +1198,91 @@ function renderIntegrationsTab(body, cfg) {
       </div>
     </div>
   `;
+
+  function renderColumns() {
+    const el = $('ship-cols');
+    if (!columns.length && !discovered.length) {
+      el.innerHTML = '<div class="muted">No columns yet. Click "Discover Columns" above to fetch them from the sheet.</div>';
+      return;
+    }
+    // Show columns in saved order first, then any discovered-but-not-saved at the end.
+    const known = new Set(columns.map(c => c.toLowerCase()));
+    const tail = discovered.filter(d => !known.has(d.toLowerCase()));
+    const all = columns.map(c => ({ name: c, on: true })).concat(tail.map(d => ({ name: d, on: false })));
+
+    el.innerHTML = all.map((c, i) => `
+      <div class="ship-col-row" data-i="${i}">
+        <label class="cam-enable" style="margin-right:10px;">
+          <input type="checkbox" data-toggle="${i}" ${c.on ? 'checked' : ''}>
+          <span style="min-width:160px;display:inline-block;">${esc(c.name)}</span>
+        </label>
+        <button class="btn btn-outline btn-sm" data-up="${i}"   ${i===0 ? 'disabled' : ''}>▲</button>
+        <button class="btn btn-outline btn-sm" data-down="${i}" ${i===all.length-1 ? 'disabled' : ''}>▼</button>
+      </div>
+    `).join('');
+
+    el.querySelectorAll('[data-toggle]').forEach(cb => cb.addEventListener('change', () => {
+      const i = +cb.dataset.toggle;
+      const name = all[i].name;
+      if (cb.checked) {
+        if (!columns.some(c => c.toLowerCase() === name.toLowerCase())) columns.push(name);
+      } else {
+        columns = columns.filter(c => c.toLowerCase() !== name.toLowerCase());
+      }
+      renderColumns();
+    }));
+    el.querySelectorAll('[data-up]').forEach(b => b.addEventListener('click', () => {
+      const i = +b.dataset.up;
+      if (i > 0 && i < columns.length) { [columns[i-1], columns[i]] = [columns[i], columns[i-1]]; renderColumns(); }
+    }));
+    el.querySelectorAll('[data-down]').forEach(b => b.addEventListener('click', () => {
+      const i = +b.dataset.down;
+      if (i < columns.length - 1) { [columns[i+1], columns[i]] = [columns[i], columns[i+1]]; renderColumns(); }
+    }));
+  }
+  renderColumns();
+
   $('save-sheet').addEventListener('click', async () => {
     await saveCurrentConfig({ googleSheetUrl: $('sheet-url').value.trim() });
     toast('Sheet URL saved');
+  });
+  $('save-cols').addEventListener('click', async () => {
+    await saveCurrentConfig({ shipmentsColumns: columns });
+    toast(`Saved ${columns.length} column${columns.length === 1 ? '' : 's'}`);
+  });
+  $('discover-cols').addEventListener('click', async () => {
+    const url = $('sheet-url').value.trim();
+    if (!url) { toast('Save a sheet URL first', true); return; }
+    const status = $('ship-discover-status');
+    status.textContent = 'Fetching sheet…';
+    try {
+      let csvUrl = url;
+      if (url.includes('docs.google.com/spreadsheets') && !url.includes('output=csv')) {
+        const m = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+        if (m) csvUrl = `https://docs.google.com/spreadsheets/d/${m[1]}/export?format=csv`;
+      }
+      const r = await fetch(csvUrl, { cache: 'no-store' });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const text = await r.text();
+      const firstLine = text.split(/\r?\n/, 1)[0] || '';
+      // Minimal CSV header parse — handles quoted commas.
+      const headers = []; let cur = '', q = false;
+      for (let i = 0; i < firstLine.length; i++) {
+        const ch = firstLine[i];
+        if (q) { if (ch === '"' && firstLine[i+1] === '"') { cur += '"'; i++; } else if (ch === '"') q = false; else cur += ch; }
+        else if (ch === '"') q = true;
+        else if (ch === ',') { headers.push(cur.trim()); cur = ''; }
+        else cur += ch;
+      }
+      if (cur.length) headers.push(cur.trim());
+      discovered = headers.filter(Boolean);
+      status.innerHTML = `<span style="color:#1ea660;">✅ Found ${discovered.length} columns</span>`;
+      // Pre-fill defaults if user has none configured.
+      if (!columns.length && discovered.length) columns = discovered.slice(0, 6);
+      renderColumns();
+    } catch (e) {
+      status.innerHTML = `<span style="color:var(--danger);">❌ ${esc(e.message || 'Fetch failed')}</span>`;
+    }
   });
   $('save-camera').addEventListener('click', async () => {
     await saveCurrentConfig({ cameraUrl: $('camera-url').value.trim() });
@@ -1400,6 +1589,141 @@ async function renderCamerasTab(body, cfg) {
   draw();
 }
 
+// ── Tab: Hikvision Camera (smart-event triggered overlay) ────────
+// Hikvision IP cameras run their own onboard analytics (Line Crossing, Field
+// Detection / Intrusion). Boundaries and target classification (person /
+// vehicle) are configured in the camera's own web UI; this server subscribes
+// to the resulting alertStream and broadcasts a CAMERA_TRIGGER WebSocket
+// message to every signage screen on the matching events.
+async function renderHikvisionTab(body, cfg) {
+  // Settings live as a global, not in the per-screen config — one camera,
+  // many screens. Pull from the dedicated endpoint instead of the screen
+  // config used by the other tabs.
+  let s = {};
+  let st = {};
+  try {
+    const r = await api('/api/hik');
+    s  = r.settings || {};
+    st = r.status   || {};
+  } catch (e) {
+    body.innerHTML = `<div class="card"><p class="muted">Failed to load settings: ${esc(e.message)}</p></div>`;
+    return;
+  }
+  const arr = (a) => Array.isArray(a) ? a.join(', ') : (a || '');
+  const indicator = st.connected
+    ? `<span style="color:#34d399;">● Connected</span>`
+    : (s.enabled ? `<span style="color:#fbbf24;">○ Enabled, not connected (retry ${st.retryCount || 0})</span>`
+                 : `<span style="color:var(--subtext);">○ Disabled</span>`);
+
+  body.innerHTML = `
+    <div class="card">
+      <div class="card-title"><span class="icon">📹</span> Hikvision Camera (smart events)</div>
+      <p class="muted">When the camera fires a Line Crossing or Intrusion event for a configured target class, every signage screen pops the camera overlay and a Slack alert is posted with a snapshot. Boundaries are drawn on the camera itself — Configuration → Event → Smart Event in the Hikvision web UI.</p>
+      <div class="form-row" style="display:flex;align-items:center;gap:12px;">
+        <label style="margin:0;">Listener enabled</label>
+        <label class="toggle"><input type="checkbox" id="hik-enabled" ${s.enabled ? 'checked' : ''}><span class="toggle-slider"></span></label>
+        <span style="margin-left:12px;font-size:12px;">${indicator}</span>
+      </div>
+      <div class="form-row"><label>Camera host (IP or hostname, optionally :port)</label>
+        <input type="text" id="hik-host" value="${esc(s.host || '')}" placeholder="10.0.91.238"></div>
+      <div class="form-row"><label>Username</label>
+        <input type="text" id="hik-user" value="${esc(s.user || '')}" placeholder="admin"></div>
+      <div class="form-row"><label>Password</label>
+        <input type="password" id="hik-pass" value="" placeholder="${s.passSet ? '••••••• (saved — leave blank to keep)' : 'enter password'}"></div>
+      <div class="form-row"><label>Display label (shown on overlay + Slack)</label>
+        <input type="text" id="hik-label" value="${esc(s.label || 'Loading Bay')}" placeholder="Loading Bay"></div>
+      <div class="btn-row">
+        <button class="btn btn-outline" id="hik-test">Test Connection</button>
+        <button class="btn btn-outline" id="hik-trigger">Fire Test Trigger</button>
+        <span id="hik-test-result" style="margin-left:12px;font-size:12px;color:var(--subtext);"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span class="icon">🎯</span> Event Filters</div>
+      <p class="muted">Comma-separated. Event types match the camera's <code>eventType</code> field (linedetection, fielddetection, regionEntrance, regionExiting, VMD). Target classes match <code>detectionTarget</code> (person, vehicle, motorVehicle, nonMotorVehicle). Leave blank to accept every value.</p>
+      <div class="form-row"><label>Event types</label>
+        <input type="text" id="hik-event-types" value="${esc(arr(s.eventTypes))}" placeholder="linedetection, fielddetection"></div>
+      <div class="form-row"><label>Target classes</label>
+        <input type="text" id="hik-classes" value="${esc(arr(s.classes))}" placeholder="person, vehicle, motorVehicle"></div>
+      <div class="form-row"><label>Debounce (seconds — same class won't re-trigger within this window)</label>
+        <input type="number" id="hik-debounce" min="0" max="600" value="${esc(String(s.debounceSec ?? 30))}"></div>
+      <div class="form-row"><label>Overlay duration (seconds)</label>
+        <input type="number" id="hik-overlay" min="3" max="120" value="${esc(String(s.overlayDurationSec ?? 15))}"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span class="icon">💬</span> Slack Notification</div>
+      <p class="muted">Posts a snapshot + message to a Slack channel using the bot already configured under the Slack tab. The bot must be a member of the channel.</p>
+      <div class="form-row" style="display:flex;align-items:center;gap:12px;">
+        <label style="margin:0;">Send Slack alert on trigger</label>
+        <label class="toggle"><input type="checkbox" id="hik-slack-enabled" ${s.slackEnabled !== false ? 'checked' : ''}><span class="toggle-slider"></span></label>
+      </div>
+      <div class="form-row"><label>Channel ID</label>
+        <input type="text" id="hik-slack-channel" value="${esc(s.slackChannel || '')}" placeholder="C0AV1R9FA1K"></div>
+    </div>
+
+    <div class="btn-row" style="margin-top:8px;"><button class="btn btn-primary" id="hik-save">💾 Save</button></div>
+  `;
+
+  const collectPatch = (includePassword) => {
+    const splitList = (v) => String(v || '').split(',').map(x => x.trim()).filter(Boolean);
+    const patch = {
+      enabled:      $('hik-enabled').checked,
+      host:         $('hik-host').value,
+      user:         $('hik-user').value,
+      label:        $('hik-label').value,
+      eventTypes:   splitList($('hik-event-types').value),
+      classes:      splitList($('hik-classes').value),
+      debounceSec:        Number($('hik-debounce').value),
+      overlayDurationSec: Number($('hik-overlay').value),
+      slackEnabled: $('hik-slack-enabled').checked,
+      slackChannel: $('hik-slack-channel').value,
+    };
+    if (includePassword) patch.pass = $('hik-pass').value;
+    return patch;
+  };
+
+  $('hik-save').addEventListener('click', async () => {
+    try {
+      await api('/api/hik', { method: 'PUT', body: collectPatch(true) });
+      toast('Hikvision settings saved');
+      // Re-render so the connection indicator updates after the listener
+      // restarts with the new credentials.
+      setTimeout(() => renderHikvisionTab(body, cfg), 600);
+    } catch (e) {
+      toast(e.message || 'Save failed', true);
+    }
+  });
+
+  $('hik-test').addEventListener('click', async () => {
+    const out = $('hik-test-result');
+    out.textContent = 'Testing…'; out.style.color = 'var(--subtext)';
+    try {
+      const r = await api('/api/hik/test', { method: 'POST', body: collectPatch(true) });
+      if (r.ok) {
+        out.textContent = `✓ Connected${r.model ? ` to ${r.model}` : ''}${r.firmware ? ` · ${r.firmware}` : ''}`;
+        out.style.color = '#34d399';
+      } else {
+        out.textContent = `✗ ${r.error || 'failed'}`;
+        out.style.color = '#ef4444';
+      }
+    } catch (e) {
+      out.textContent = `✗ ${e.message}`;
+      out.style.color = '#ef4444';
+    }
+  });
+
+  $('hik-trigger').addEventListener('click', async () => {
+    try {
+      await api('/api/hik/trigger', { method: 'POST', body: { eventType: 'linedetection', targetType: 'person' } });
+      toast('Test trigger sent');
+    } catch (e) {
+      toast(e.message || 'Trigger failed', true);
+    }
+  });
+}
+
 // ── Tab: Meeting Rooms ───────────────────────────────────────────
 function renderMeetingRoomsTab(body, cfg) {
   // Always present 6 slots so the layout matches the signage tile grid.
@@ -1623,6 +1947,28 @@ function renderRotationTab(body, cfg) {
       </div>
       <div class="btn-row" style="margin-top:16px;"><button class="btn btn-primary" id="save-rot">💾 Save</button></div>
     </div>
+
+    <div class="card">
+      <div class="card-title"><span class="icon">🔄</span> Nightly Auto-Reload</div>
+      <p class="muted">
+        Reloads the signage page once a day at the chosen local time. Browsers
+        running on Raspberry Pi or other low-RAM kiosks slowly accumulate
+        memory over hours of dynamic content and eventually get killed by the
+        OS. A scheduled reload is the standard fix — gives Chromium a clean
+        slate without anyone having to touch the TV.
+      </p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:end;">
+        <div class="form-row">
+          <label>Hour (0-23, -1 to disable)</label>
+          <input type="number" id="reload-hour" min="-1" max="23" value="${cfg.reloadHour ?? 3}">
+        </div>
+        <div class="form-row">
+          <label>Minute</label>
+          <input type="number" id="reload-min" min="0" max="59" value="${cfg.reloadMinute ?? 0}">
+        </div>
+      </div>
+      <div class="btn-row"><button class="btn btn-primary" id="save-reload">💾 Save</button></div>
+    </div>
   `;
   $('rot-slider').addEventListener('input', () => $('rot-disp').textContent = $('rot-slider').value + 's');
   // Click any tick label to jump the slider to that value.
@@ -1635,6 +1981,12 @@ function renderRotationTab(body, cfg) {
   $('save-rot').addEventListener('click', async () => {
     await saveCurrentConfig({ rotationMs: parseInt($('rot-slider').value) * 1000 });
     toast('Rotation saved');
+  });
+  $('save-reload').addEventListener('click', async () => {
+    const h = Math.max(-1, Math.min(23, parseInt($('reload-hour').value, 10)));
+    const m = Math.max(0,  Math.min(59, parseInt($('reload-min').value, 10) || 0));
+    await saveCurrentConfig({ reloadHour: h, reloadMinute: m });
+    toast(h < 0 ? 'Auto-reload disabled' : `Reload set to ${h}:${String(m).padStart(2,'0')}`);
   });
 }
 

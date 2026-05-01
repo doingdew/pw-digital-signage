@@ -85,11 +85,18 @@ function requireAuthPage(req, res, next) {
   next();
 }
 
+// Cookie `secure` flag is environment-driven so production HTTPS deployments
+// can opt in without a code change. Defaults to off to keep working over plain
+// HTTP on the LAN, which is the typical signage setup.
+//   COOKIE_SECURE=1  → cookie only sent over HTTPS
+//   TRUST_PROXY=1 + cookie_secure=1 is the right pair behind a TLS terminator.
+const COOKIE_SECURE = process.env.COOKIE_SECURE === '1';
+
 function setSessionCookie(res, token, expiresAt) {
   res.cookie('sid', token, {
     httpOnly: true,
     sameSite: 'lax',
-    secure: false,   // set to true behind HTTPS in production
+    secure: COOKIE_SECURE,
     expires: new Date(expiresAt),
     path: '/',
   });

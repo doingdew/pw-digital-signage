@@ -87,6 +87,7 @@ async function boot() {
   startSports();
   startTrends();
   startStocks();
+  startWarehouse();
   // Build static parts
   buildAnalogFace();
   buildDots();
@@ -103,6 +104,9 @@ async function boot() {
   updateClock();
   setInterval(updateClock, 1000);
   setInterval(expireOldMessages, 60 * 1000);
+  // Nightly self-reload — keeps Chromium on Raspberry Pi (or any memory-
+  // constrained kiosk) from gradually OOM-ing over a multi-day uptime.
+  setInterval(maybeNightlyReload, 60 * 1000);
 
   // WebSocket — live updates
   connectWs();
@@ -135,6 +139,12 @@ function applyConfig(cfg) {
   document.documentElement.style.setProperty('--bg', cfg.bgColor || '#0a0e1a');
   document.documentElement.style.setProperty('--accent', cfg.accentColor || '#00aaff');
   document.body.style.background = cfg.bgColor || '#0a0e1a';
+  // Light-theme detection — Daylight, Paper, etc. have near-white backgrounds
+  // where the default white text + translucent-white cards are invisible.
+  // Toggling .light-theme on body lets the CSS override --text / --subtext
+  // and the few translucent surfaces that hard-code white tints.
+  document.body.classList.toggle('light-theme', isLightColor(cfg.bgColor || '#0a0e1a'));
+  applyBgMotion(cfg);
   // Font
   if (cfg.fontFamily && window.loadFontFamily) {
     window.loadFontFamily(cfg.fontFamily);
@@ -155,6 +165,64 @@ function applyConfig(cfg) {
   }
   // Zones
   buildDots();
+}
+
+// ── Last-refreshed badge ─────────────────────────────────────────
+// Centered "Last refreshed" indicator at the bottom of the screen. Each zone
+// that pulls remote data calls markRefreshed(zid) after a successful fetch;
+// when a zone activates the badge shows that zone's most recent fetch time.
+// Zones without remote data (clock, sun arc, etc.) hide the badge.
+const REFRESHABLE_ZONES = new Set([
+  'zone-shipments', 'zone-warehouse', 'zone-kpi', 'zone-weather',
+  'zone-sports-results', 'zone-sports-upcoming',
+  'zone-stocks-overview', 'zone-stocks-bigboard',
+  'zone-trends', 'zone-meetings', 'zone-calendar',
+  'zone-doors', 'zone-radar', 'zone-traffic',
+  'zone-slack', 'zone-bignum',
+]);
+function markRefreshed(zid, ts) {
+  if (!state.zoneRefreshedAt) state.zoneRefreshedAt = {};
+  state.zoneRefreshedAt[zid] = ts || Date.now();
+  // Immediately repaint the badge if the just-refreshed zone is the visible one.
+  const cur = state.config?.zoneIds?.[state.currentZone];
+  if (cur === zid) updateLastRefreshedDisplay(zid);
+}
+function updateLastRefreshedDisplay(zid) {
+  const el = document.getElementById('last-refreshed');
+  if (!el) return;
+  if (!REFRESHABLE_ZONES.has(zid)) { el.classList.add('hidden'); el.textContent = ''; return; }
+  el.classList.remove('hidden');
+  const ts = state.zoneRefreshedAt && state.zoneRefreshedAt[zid];
+  if (!ts) { el.textContent = 'Last refreshed: —'; return; }
+  const t = new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  el.textContent = `Last refreshed: ${t}`;
+}
+
+// True if the given hex colour is light enough that white-on-X text becomes
+// unreadable. Uses luminance-weighted average per ITU-R BT.601 (Y'=0.299R +
+// 0.587G + 0.114B). Cutoff at 0.6 picks up #f6f8fa (Daylight) and #fdfaf3
+// (Paper) while leaving Slate (#1a1f2e) firmly on the dark side.
+function isLightColor(hex) {
+  const m = /^#?([a-f0-9]{6})$/i.exec(String(hex || ''));
+  if (!m) return false;
+  const n = parseInt(m[1], 16);
+  const r = (n >> 16) & 0xff, g = (n >> 8) & 0xff, b = n & 0xff;
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.6;
+}
+
+const BG_MOTION_PATTERNS = ['drift','aurora','stars','grid','waves'];
+function applyBgMotion(cfg) {
+  // Migrate legacy `bgMotion: true` flag → 'drift' pattern.
+  let pattern = cfg.bgMotionPattern;
+  if (!pattern && cfg.bgMotion) pattern = 'drift';
+  if (!BG_MOTION_PATTERNS.includes(pattern)) pattern = 'off';
+  for (const p of BG_MOTION_PATTERNS) document.body.classList.remove(`bg-motion-${p}`);
+  if (pattern !== 'off') document.body.classList.add(`bg-motion-${pattern}`);
+  // Slider value 0-100 maps to 0-1.2 multiplier (1.2 lets users push beyond
+  // the design baseline if they want it more obvious on bright displays).
+  const rawI = Number.isFinite(+cfg.bgMotionIntensity) ? +cfg.bgMotionIntensity : 60;
+  const intensity = Math.max(0, Math.min(100, rawI)) / 100 * 1.2;
+  document.documentElement.style.setProperty('--bg-motion-intensity', intensity.toFixed(3));
 }
 
 // ── WebSocket ────────────────────────────────────────────────────
@@ -220,6 +288,10 @@ function handleWsMessage(m) {
     case 'SHOW_CAMERA':
     case 'CAMERA_SHOW':
       showCamera(m.payload?.url, m.payload?.label); playAlertSound('camera'); break;
+    case 'CAMERA_TRIGGER':
+      // Hikvision smart-event fired — show the overlay with a server-proxied
+      // snapshot poll for a near-live preview.
+      showCameraSnapshot(m.payload || {}); playAlertSound('camera'); break;
     case 'HIDE_CAMERA':
     case 'CAMERA_HIDE':
       dismissCamera(); break;
@@ -232,6 +304,13 @@ function handleWsMessage(m) {
     }
     case 'SCREEN_DELETED':
       document.body.innerHTML = '<div style="padding:40px;color:#aaa;">This screen was deleted.</div>';
+      break;
+    case 'SLUG_CHANGED':
+      // Admin renamed this screen — point the browser at the new URL so the
+      // bookmark / kiosk shortcut updates after one more reload cycle.
+      if (m.slug && typeof m.slug === 'string') {
+        location.replace(`/s/${encodeURIComponent(m.slug)}`);
+      }
       break;
   }
 }
@@ -358,6 +437,26 @@ function updateClock() {
   setText('header-date-str', dStr);
 }
 
+// Reload the page once a day at the configured local hour:minute. Cheap,
+// reliable workaround for browsers on memory-constrained hardware (Pi,
+// Chromebox, fanless mini-PCs) where Chromium accumulates memory over hours
+// of dynamic DOM mutation and image swaps. Industry-standard kiosk pattern.
+let _lastReloadCheck = 0;
+function maybeNightlyReload() {
+  const cfg = state.config; if (!cfg) return;
+  const hour = Number(cfg.reloadHour);
+  if (!Number.isFinite(hour) || hour < 0 || hour > 23) return;   // disabled
+  const minute = Math.max(0, Math.min(59, Number(cfg.reloadMinute) || 0));
+  const now = new Date();
+  if (now.getHours() !== hour || now.getMinutes() !== minute) return;
+  // Don't fire twice within the same minute (this function runs every 60s).
+  if (Date.now() - _lastReloadCheck < 90 * 1000) return;
+  _lastReloadCheck = Date.now();
+  console.log(`[signage] nightly reload @ ${hour}:${String(minute).padStart(2,'0')}`);
+  // Hard reload — bypasses cache so any code/CSS update gets picked up too.
+  setTimeout(() => location.reload(), 500);
+}
+
 // Drop messages older than 60 min so the Team Messages zone clears itself
 // and gets skipped by the rotation when there's nothing fresh to show.
 function expireOldMessages() {
@@ -434,6 +533,7 @@ async function fetchWeather() {
       $('weather-forecast').innerHTML = fcHtml;
       updateForecastVisibility();
     }
+    markRefreshed('zone-weather');
   } catch (e) {
     setText('weather-desc', 'Weather unavailable');
     setText('header-weather-mini', '—');
@@ -457,6 +557,11 @@ function parseCsv(text) {
   if (cell.length || row.length) { row.push(cell); rows.push(row); }
   return rows;
 }
+// Sheet data lives here so the admin "discover columns" tooling can poke at
+// the same headers the renderer is using.
+let _sheetHeaders = [];
+let _sheetRows = [];
+
 async function fetchSheetData() {
   const url = state.config?.googleSheetUrl; if (!url) return;
   try {
@@ -467,52 +572,99 @@ async function fetchSheetData() {
     }
     const r = await fetch(csvUrl, { cache: 'no-store' });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const parsed = parseCsv(await r.text()).map(r => r.map(c => c.trim()));
+    const parsed = parseCsv(await r.text()).map(r => r.map(c => (c || '').trim()));
     if (parsed.length < 2) return;
-    const headers = parsed[0].map(h => h.toLowerCase());
-    const data = parsed.slice(1).filter(r => r.some(c => c));
-    renderShipments(headers, data);
-    renderKPIs(headers, data);
-    setText('shipments-updated', `Last updated: ${new Date().toLocaleTimeString()}`);
+    _sheetHeaders = parsed[0];
+    // Skip rows whose first column (column A) is empty — that's the signal
+    // the row is a spacer / total / blank entry rather than a real shipment.
+    _sheetRows = parsed.slice(1).filter(r => r[0] && r[0].length);
+    renderShipments(_sheetHeaders, _sheetRows);
+    renderKPIs(_sheetHeaders, _sheetRows);
+    markRefreshed('zone-shipments');
+    markRefreshed('zone-kpi');
   } catch (e) {
-    $('shipments-body').innerHTML = `<tr><td colspan="6" style="color:#ff5050;text-align:center;padding:30px;">Error: ${escHtml(e.message)}</td></tr>`;
+    $('shipments-body').innerHTML = `<tr><td style="color:#ff5050;text-align:center;padding:30px;">Error: ${escHtml(e.message)}</td></tr>`;
   }
 }
+
+// Display labels — strip Salesforce's "Object: Field" prefix so the table
+// header reads "Purchase Order" instead of "Purchase Order: Purchase Order".
+function shipmentColumnLabel(name) {
+  const m = String(name || '').match(/:\s*(.+)$/);
+  return (m ? m[1] : name).trim();
+}
+
 function renderShipments(headers, data) {
-  const colMap = {};
-  ['ref','supplier','origin','items','eta','status','notes'].forEach(k => { colMap[k] = headers.findIndex(h => h.includes(k)); });
-  const rows = data.slice(0, 8).map(row => {
-    const get = k => colMap[k] >= 0 ? (row[colMap[k]] || '—') : '—';
-    const sl = get('status').toLowerCase();
-    const cls = sl.includes('arriving')||sl.includes('today') ? 'status-arriving' : sl.includes('delivered') ? 'status-delivered' : sl.includes('delay') ? 'status-delayed' : 'status-incoming';
-    const so = get('supplier') !== '—' ? get('supplier') : get('origin');
-    return `<tr><td>${escHtml(get('ref'))}</td><td>${escHtml(so)}</td><td>${escHtml(get('items'))}</td><td>${escHtml(get('eta'))}</td><td><span class="status-badge ${cls}">${escHtml(get('status'))}</span></td><td style="font-size:16px;color:var(--subtext)">${escHtml(get('notes'))}</td></tr>`;
+  const cfg = state.config || {};
+  // Pick the configured columns (case-insensitive match against actual headers
+  // so a small label drift doesn't blank everything). Falls back to the first
+  // 6 columns if the config is empty or none match.
+  const wanted = (cfg.shipmentsColumns && cfg.shipmentsColumns.length)
+    ? cfg.shipmentsColumns
+    : headers.slice(0, 6);
+  let cols = wanted.map(want => {
+    const idx = headers.findIndex(h => h.toLowerCase() === String(want).toLowerCase());
+    return idx >= 0 ? { name: headers[idx], idx } : null;
+  }).filter(Boolean);
+  // If none of the configured columns match the sheet (e.g. default Salesforce
+  // labels vs a custom sheet), fall back to the sheet's actual row-1 headers
+  // so the table never renders without a header row.
+  if (!cols.length) {
+    cols = headers.slice(0, 6).map((h, i) => ({ name: h, idx: i }));
+  }
+
+  // Build header row.
+  const thead = `<tr>${cols.map(c => `<th>${escHtml(shipmentColumnLabel(c.name))}</th>`).join('')}</tr>`;
+  $('shipments-head').innerHTML = thead;
+
+  if (!data.length) {
+    $('shipments-body').innerHTML = `<tr><td colspan="${cols.length}" style="text-align:center;color:var(--subtext);padding:30px;">No data</td></tr>`;
+    return;
+  }
+
+  // Up to 12 rows — table will scroll if exceeded by zone height (rarely happens).
+  const rowsHtml = data.slice(0, 12).map(row => {
+    const cells = cols.map(c => {
+      const v = row[c.idx];
+      return `<td>${escHtml(v && v.length ? v : '—')}</td>`;
+    }).join('');
+    return `<tr>${cells}</tr>`;
   }).join('');
-  $('shipments-body').innerHTML = rows || `<tr><td colspan="6" style="text-align:center;color:var(--subtext);padding:30px;">No data</td></tr>`;
+  $('shipments-body').innerHTML = rowsHtml;
 }
 function renderKPIs(headers, data) {
   if (state.config?.kpiItems?.length) { renderCustomKpis(); return; }
-  const sc = headers.findIndex(h => h.includes('status'));
-  if (sc < 0) return;
-  const delivered = data.filter(r => (r[sc]||'').toLowerCase().includes('deliver')).length;
-  const pending = data.filter(r => !(r[sc]||'').toLowerCase().includes('deliver')).length;
-  const total = data.length;
-  const oc = headers.findIndex(h => h.includes('order') || h.includes('packed'));
-  const ot = headers.findIndex(h => h.includes('ontime') || h.includes('on-time'));
+  // Derive default KPIs from the Salesforce-style PO sheet:
+  //   Total POs        = row count
+  //   Fully Delivered  = rows where Open Balance Qty == 0
+  //   Partial          = rows where 0 < Open Balance Qty < Order Qty
+  //   Open / Pending   = rows where Open Balance Qty == Order Qty
+  const openIdx  = headers.findIndex(h => /open\s*balance\s*qty/i.test(h));
+  const totalIdx = headers.findIndex(h => /^order\s*qty$/i.test(h));
+  if (openIdx < 0) return;   // not a recognized shipments sheet — leave KPIs as-is
+
+  let delivered = 0, partial = 0, pending = 0;
+  for (const row of data) {
+    const open  = parseFloat(row[openIdx]);
+    const total = totalIdx >= 0 ? parseFloat(row[totalIdx]) : NaN;
+    if (Number.isFinite(open) && open === 0)                                    delivered++;
+    else if (Number.isFinite(open) && Number.isFinite(total) && open < total)   partial++;
+    else                                                                        pending++;
+  }
   renderDefaultKpiGrid();
-  setText('kpi-orders', oc >= 0 ? (data[0][oc] || '—') : total);
+  setText('kpi-orders', data.length);
   setText('kpi-deliveries', delivered);
-  setText('kpi-ontime', ot >= 0 ? `${data[0][ot]}%` : total > 0 ? `${Math.round(delivered/total*100)}%` : '—');
+  setText('kpi-ontime', partial);
   setText('kpi-pending', pending);
 }
 function renderDefaultKpiGrid() {
   const g = $('kpi-grid'); if (!g || g.dataset.mode === 'default') return;
   g.dataset.mode = 'default';
   g.innerHTML = `
-    <div class="kpi-card"><div class="kpi-val" id="kpi-orders">—</div><div class="kpi-label">Orders Packed</div></div>
-    <div class="kpi-card"><div class="kpi-val" id="kpi-deliveries">—</div><div class="kpi-label">Deliveries Today</div></div>
-    <div class="kpi-card"><div class="kpi-val" id="kpi-ontime">—</div><div class="kpi-label">On-Time %</div></div>
-    <div class="kpi-card"><div class="kpi-val" id="kpi-pending">—</div><div class="kpi-label">Pending Shipments</div></div>`;
+    <div class="kpi-card"><div class="kpi-val" id="kpi-orders">—</div><div class="kpi-label">Open POs</div></div>
+    <div class="kpi-card"><div class="kpi-val" id="kpi-deliveries">—</div><div class="kpi-label">Fully Delivered</div></div>
+    <div class="kpi-card"><div class="kpi-val" id="kpi-ontime">—</div><div class="kpi-label">Partial</div></div>
+    <div class="kpi-card"><div class="kpi-val" id="kpi-pending">—</div><div class="kpi-label">Pending</div></div>`;
 }
 function renderCustomKpis() {
   const g = $('kpi-grid'); if (!g) return;
@@ -526,11 +678,125 @@ function renderCustomKpis() {
     </div>`).join('');
 }
 
+// ── Warehouse Dashboard ──────────────────────────────────────────
+// Three Google Sheet feeds (Receiving / Pick / Ship) collapsed into a single
+// at-a-glance panel grid. We don't try to interpret the sheet schema — we just
+// count rows whose column A is non-empty (same convention as Shipments) and
+// surface the latest five column-A values as chips. This makes the dashboard
+// resilient to changes in the upstream sheet format.
+// `displayColumns` controls what each chip in the panel's "latest" list reads.
+// Names match against sheet headers case-insensitively; missing columns fall
+// back to column A so a header rename in the sheet doesn't blank the panel.
+// Multiple columns are joined with " — ".
+const WAREHOUSE_PANELS = [
+  { key: 'recv', cfgKey: 'warehouseReceivingUrl', displayColumns: ['Manufacturer DBA', 'Product Name']                                              },
+  { key: 'pick', cfgKey: 'warehousePickUrl',      displayColumns: ['Planned Pick Date', 'Inventory Account', 'Picklist', 'Planned Ship Date']       },
+  { key: 'ship', cfgKey: 'warehouseShipUrl',      displayColumns: ['Inventory Account', 'Planned Ship Date']                                        },
+];
+
+function startWarehouse() {
+  refreshWarehouse();
+  // 5 min — these sheets are updated by warehouse staff, not real-time systems.
+  setInterval(refreshWarehouse, 5 * 60 * 1000);
+}
+
+// Same Google Sheets share-URL → CSV transform used by Shipments. Pulled out
+// so both call sites stay in sync if Google ever changes the export path.
+function googleSheetCsvUrl(url) {
+  if (!url) return '';
+  if (url.includes('docs.google.com/spreadsheets') && !url.includes('output=csv')) {
+    const m = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    if (m) return `https://docs.google.com/spreadsheets/d/${m[1]}/export?format=csv`;
+  }
+  return url;
+}
+
+async function fetchWarehouseSheet(url, displayColumns) {
+  const csvUrl = googleSheetCsvUrl(url);
+  const r = await fetch(csvUrl, { cache: 'no-store' });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const parsed = parseCsv(await r.text()).map(row => row.map(c => (c || '').trim()));
+  if (parsed.length < 2) return { count: 0, latest: [] };
+  const headers = parsed[0];
+  // Skip header row (row 1), then keep only rows whose column A is non-empty.
+  const rows = parsed.slice(1).filter(r => r[0] && r[0].length);
+  // Fuzzy header match — strip every non-alphanumeric character and lowercase
+  // both sides. So "Part Number" matches "PartNumber", "PART_NUMBER",
+  // "Part #", "Part No.", and "part-number". If a header changes shape in the
+  // sheet (added punctuation, casing edits) the chip stays correct.
+  const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const normalizedHeaders = headers.map(norm);
+  const colIndices = [];
+  const missing = [];
+  for (const name of (displayColumns || [])) {
+    const idx = normalizedHeaders.indexOf(norm(name));
+    if (idx >= 0) colIndices.push(idx);
+    else          missing.push(name);
+  }
+  // Surface unmatched names in the browser console so the actual sheet
+  // headers are obvious when a chip falls back to column A. One log per
+  // refresh — not flooding.
+  if (missing.length) {
+    console.warn('[warehouse] column(s) not found in sheet:', missing, '— sheet headers were:', headers);
+  }
+  const formatRow = (row) => {
+    if (!colIndices.length) return row[0];
+    const parts = colIndices.map(i => row[i] || '').filter(Boolean);
+    return parts.length ? parts.join(' — ') : row[0];
+  };
+  // "Latest" = last 5 entries in sheet order. Most warehouse sheets append
+  // newest rows at the bottom; if a user prepends, swap to .slice(0,5).
+  const latest = rows.slice(-5).map(formatRow).filter(Boolean).reverse();
+  return { count: rows.length, latest };
+}
+
+function renderWarehousePanel(key, payload, error) {
+  const panel = document.querySelector(`.wh-panel[data-panel="${key}"]`);
+  if (!panel) return;
+  const countEl = panel.querySelector('[data-role="count"]');
+  const listEl  = panel.querySelector('[data-role="list"]');
+  if (error) {
+    if (countEl) countEl.textContent = '—';
+    if (listEl)  listEl.innerHTML = `<li class="wh-error">${escHtml(error)}</li>`;
+    return;
+  }
+  if (countEl) countEl.textContent = payload.count.toLocaleString();
+  if (listEl) {
+    if (!payload.latest.length) {
+      listEl.innerHTML = `<li class="wh-empty">No entries</li>`;
+    } else {
+      listEl.innerHTML = payload.latest.map(v => `<li>${escHtml(v)}</li>`).join('');
+    }
+  }
+}
+
+async function refreshWarehouse() {
+  const cfg = state.config || {};
+  // No URLs configured at all → leave the placeholder values; the rotation
+  // will skip this zone via shouldSkipZone().
+  if (!WAREHOUSE_PANELS.some(p => cfg[p.cfgKey])) return;
+  await Promise.all(WAREHOUSE_PANELS.map(async ({ key, cfgKey, displayColumns }) => {
+    const url = cfg[cfgKey];
+    if (!url) {
+      renderWarehousePanel(key, { count: 0, latest: [] });
+      return;
+    }
+    try {
+      const payload = await fetchWarehouseSheet(url, displayColumns);
+      renderWarehousePanel(key, payload);
+    } catch (e) {
+      renderWarehousePanel(key, null, `Sheet error: ${e.message}`);
+    }
+  }));
+  markRefreshed('zone-warehouse');
+}
+
 // ── Messages display ─────────────────────────────────────────────
 // Renders every active message as a stacked list (newest at top) so the
 // whole conversation is visible at once. Replaces the previous one-message-
 // at-a-time carousel that required the rotation to land on this zone N times.
 function renderSlack() {
+  markRefreshed('zone-slack');
   const msgs = state.slackMessages;
   const empty = $('slack-empty'), content = $('slack-content'), countEl = $('slack-msg-count');
   if (!msgs.length) { empty.style.display = 'block'; content.style.display = 'none'; countEl.textContent = ''; return; }
@@ -578,6 +844,7 @@ async function refreshMeetingRooms() {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const j = await r.json();
     renderMeetingRooms(j.rooms || [], j.soonMins || 30);
+    markRefreshed('zone-meetings');
   } catch (e) {
     grid.innerHTML = `<div class="trend-empty">Couldn't load room status: ${escHtml(e.message)}</div>`;
   }
@@ -798,6 +1065,7 @@ function refreshSnapshots() {
       .catch(() => { img.style.opacity = '0.15'; });
   });
   setText('cam-updated', new Date().toLocaleTimeString());
+  markRefreshed('zone-doors');
 }
 let camRefreshTimer = null;
 function startCamRefresh() {
@@ -828,7 +1096,7 @@ function goToZone(index, manual = false) {
   if (zid === 'zone-safety') { state.safetyIndex++; renderSafety(); }
   if (zid === 'zone-motivation') { state.motivationIndex++; renderMotivation(); }
   if (zid === 'zone-slack') renderSlack();   // refresh "5m ago" labels
-  if (zid === 'zone-sports' || zid === 'zone-sports-results' || zid === 'zone-sports-upcoming') fetchSportsScores();
+  if (zid === 'zone-sports-results' || zid === 'zone-sports-upcoming') fetchSportsScores();
   if (zid === 'zone-trends') refreshTrends();
   if (zid === 'zone-stocks-overview') refreshStocksOverview();
   if (zid === 'zone-stocks-bigboard') {
@@ -843,6 +1111,9 @@ function goToZone(index, manual = false) {
   if (zid === 'zone-bignum')      renderBigNum();
   if (zid === 'zone-slides')      renderSlides();
   if (zid === 'zone-meetings')    refreshMeetingRooms();
+  if (zid === 'zone-warehouse')   refreshWarehouse();
+  // Update the global "Last refreshed" badge for the newly-active zone.
+  updateLastRefreshedDisplay(zid);
   if (manual) restartRotation();
 }
 // Whether the rotation should skip past a given zone right now (because it
@@ -858,6 +1129,10 @@ function shouldSkipZone(zid) {
   }
   if (zid === 'zone-sports-results')  return !(state.sportsZoneCounts?.results > 0);
   if (zid === 'zone-sports-upcoming') return !(state.sportsZoneCounts?.upcoming > 0);
+  if (zid === 'zone-warehouse') {
+    const c = state.config || {};
+    return !(c.warehouseReceivingUrl || c.warehousePickUrl || c.warehouseShipUrl);
+  }
   if (zid === 'zone-stocks-overview') {
     const cfg = state.config || {};
     const n = (cfg.stockIndices?.length || 0) + (cfg.stockOverviewSymbols?.length || 0);
@@ -961,11 +1236,64 @@ function showCamera(url) {
   // Auto-dismiss after 15s — signage is unattended, no manual close.
   cameraDismissTimer = setTimeout(dismissCamera, 15000);
 }
+// Show the overlay with a server-proxied Hikvision snapshot polling at ~2 fps.
+// payload: { snapshotUrl, label, durationMs, eventType, targetType }
+let _camSnapshotTimer = null;
+function showCameraSnapshot(payload) {
+  const overlay = $('camera-overlay');
+  const img     = $('camera-snapshot');
+  const iframe  = $('camera-iframe');
+  const video   = $('camera-video');
+  const ph      = $('camera-placeholder');
+  const banner  = $('camera-alert-banner');
+  if (!overlay || !img) return;
+
+  // Tear down the other player paths so they don't paint on top.
+  if (_camHls) { try { _camHls.destroy(); } catch (_) {} _camHls = null; }
+  if (iframe) { iframe.src = ''; iframe.style.display = 'none'; }
+  if (video)  { video.removeAttribute('src'); try { video.load(); } catch (_) {} video.style.display = 'none'; }
+  if (ph) ph.style.display = 'none';
+
+  // Customise the banner text to reflect what fired. Keeps the existing 🚨
+  // styling and audio cue from the legacy SHOW_CAMERA path.
+  if (banner) {
+    const cls = (payload.targetType || '').toString();
+    const niceClass = cls
+      ? (cls.toLowerCase() === 'person' ? 'PERSON' :
+         /vehicle/i.test(cls)            ? 'VEHICLE' : cls.toUpperCase())
+      : 'OBJECT';
+    const where = payload.label ? ` AT ${String(payload.label).toUpperCase()}` : '';
+    banner.innerHTML = `<span class="alert-icon">🚨</span> ${niceClass} DETECTED${where} <span class="alert-icon">🚨</span>`;
+  }
+
+  // Snapshot URL with a cache-busting query string. The proxy is server-side
+  // so we don't need credentials; the browser just sees fresh JPEGs.
+  const baseUrl = payload.snapshotUrl || '/api/hik/snapshot';
+  const tickUrl = () => `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}t=${Date.now()}`;
+  img.style.display = 'block';
+  img.src = tickUrl();
+  if (_camSnapshotTimer) clearInterval(_camSnapshotTimer);
+  // ~2 fps. The camera + LAN are easily fast enough; if a single fetch fails
+  // the next one is only 500 ms behind, so the UX is "live-ish" without RTSP.
+  _camSnapshotTimer = setInterval(() => {
+    if (!overlay.classList.contains('active')) return;
+    img.src = tickUrl();
+  }, 500);
+
+  overlay.classList.add('active');
+  if (cameraDismissTimer) clearTimeout(cameraDismissTimer);
+  const dur = Number(payload.durationMs) > 0 ? Number(payload.durationMs) : 15000;
+  cameraDismissTimer = setTimeout(dismissCamera, dur);
+}
+
 function dismissCamera() {
   if (cameraDismissTimer) { clearTimeout(cameraDismissTimer); cameraDismissTimer = null; }
+  if (_camSnapshotTimer)  { clearInterval(_camSnapshotTimer); _camSnapshotTimer  = null; }
   if (_camHls) { try { _camHls.destroy(); } catch (_) {} _camHls = null; }
   const v = $('camera-video');
   if (v) { v.removeAttribute('src'); try { v.load(); } catch (_) {} v.style.display = 'none'; }
+  const img = $('camera-snapshot');
+  if (img) { img.removeAttribute('src'); img.style.display = 'none'; }
   $('camera-overlay').classList.remove('active');
   $('camera-iframe').src = '';
 }
@@ -1141,11 +1469,9 @@ async function fetchSportsScores() {
     return { lg, events: (await r.json()).events || [] };
   }));
   // Bucket each event into "results" (live or final) vs "upcoming" (pre,
-  // in the next 24h). We render three potential layouts:
-  //   - zone-sports          (legacy combined; everything in one page)
+  // in the next 24h). Two zones own one bucket each:
   //   - zone-sports-results  (last ~24h of finals + currently-live)
   //   - zone-sports-upcoming (next ~24h of scheduled games)
-  // The split zones each own one bucket; the legacy combined zone shows both.
   const byBucket = { results: [], upcoming: [] }; // each entry = { lg, events: [...] }
   let totalGames = 0;
   for (const res of results) {
@@ -1230,14 +1556,7 @@ async function fetchSportsScores() {
     }
   };
 
-  // Legacy combined zone (only used if someone explicitly added zone-sports
-  // back to their rotation) keeps showing everything in one view.
-  const sportsLegacy = $('sports-leagues');
-  if (sportsLegacy) sportsLegacy.innerHTML = renderBucket([...byBucket.results, ...byBucket.upcoming]) || empty;
-  setDensity(sportsLegacy, totalGames);
-  setText('sports-updated', stamp);
-
-  // Split zones — each one strictly shows only its own bucket. Empty zones
+  // Each zone strictly shows only its own bucket. Empty zones
   // get skipped automatically by the rotation via shouldSkipZone().
   const rEl = $('sports-results-leagues');
   const uEl = $('sports-upcoming-leagues');
@@ -1248,6 +1567,8 @@ async function fetchSportsScores() {
   state.sportsZoneCounts = { results: resultsCount, upcoming: upcomingCount, combined: totalGames };
   setText('sports-results-updated',  stamp);
   setText('sports-upcoming-updated', stamp);
+  markRefreshed('zone-sports-results');
+  markRefreshed('zone-sports-upcoming');
 }
 
 // ── Stocks ───────────────────────────────────────────────────────
@@ -1357,6 +1678,7 @@ async function refreshStocksOverview() {
     </div>`;
   }).join('');
   setText('stocks-overview-updated', `Updated: ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}`);
+  markRefreshed('zone-stocks-overview');
 }
 
 // ── Big board: full S&P 500 sector treemap ────────────────────────
@@ -1547,20 +1869,12 @@ function renderBigBoardTreemap() {
     const when = new Date(state.sp500At).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const session = SP500_SESSION_LABEL[state.sp500Session];
     setText('stocks-bigboard-updated', session ? `${session} · ${when}` : `Snapshot · ${when}`);
+    markRefreshed('zone-stocks-bigboard', state.sp500At);
   }
 }
 
 // ── Trends ───────────────────────────────────────────────────────
 function startTrends() { refreshTrends(); setInterval(refreshTrends, 10 * 60 * 1000); }
-function renderTrendCol(id, items, fmt) {
-  const el = $(id); if (!el) return;
-  if (!items?.length) { el.innerHTML = '<div class="trend-empty">No data.</div>'; return; }
-  el.innerHTML = items.slice(0, 10).map((it, i) => `
-    <div class="trend-item">
-      <div class="trend-rank">${i+1}.</div>
-      <div><div>${escHtml(fmt.text(it))}</div>${fmt.meta(it) ? `<div style="font-size:12px;color:var(--subtext);margin-top:3px;">${escHtml(fmt.meta(it))}</div>` : ''}</div>
-    </div>`).join('');
-}
 async function fetchNewsHeadlines() {
   try {
     const c = (state.config?.trendsCountry || 'US').toUpperCase();
@@ -1572,11 +1886,11 @@ async function fetchNewsHeadlines() {
       title: (it.title || '').replace(/\s*-\s*[^-]+$/, '').trim(),
       source: (it.author || (it.title || '').match(/-\s*([^-]+)$/)?.[1] || '').trim(),
     }));
-    renderTrendsHero('trends-news', items, '📰 Top Headlines', it => it.title, it => it.source);
+    renderTrendsHero('trends-news', items, it => it.title, it => it.source);
   } catch (_) { $('trends-news').innerHTML = '<div class="trend-empty">Headlines unavailable.</div>'; }
 }
 // Hero-card layout: first item gets a big card, the rest stack below it.
-function renderTrendsHero(elId, items, titleHtml, getText, getMeta) {
+function renderTrendsHero(elId, items, getText, getMeta) {
   const el = $(elId); if (!el) return;
   if (!items?.length) { el.innerHTML = '<div class="trend-empty">No data.</div>'; return; }
   const top = items[0];
@@ -1609,10 +1923,10 @@ async function fetchGoogleTrends() {
       query: (it.title || '').trim(),
       traffic: (it.description || '').match(/\d+[,.\d]*\+?\s*(searches)?/i)?.[0] || '',
     }));
-    renderTrendsHero('trends-google', items, '🔍 Google Trends', it => it.query, it => it.traffic);
+    renderTrendsHero('trends-google', items, it => it.query, it => it.traffic);
   } catch (_) { $('trends-google').innerHTML = '<div class="trend-empty">Google Trends unavailable.</div>'; }
 }
-function refreshTrends() { fetchNewsHeadlines(); fetchGoogleTrends(); setText('trends-updated', `Updated: ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}`); }
+function refreshTrends() { fetchNewsHeadlines(); fetchGoogleTrends(); setText('trends-updated', `Updated: ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}`); markRefreshed('zone-trends'); }
 
 // ── Google Maps loader (radar + traffic share one key) ───────────
 let gMapsPromise = null;
@@ -1666,12 +1980,14 @@ async function initRadar() {
     const tileFn = (coord, zoom) => `https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/nexrad-n0q-900913/${zoom}/${coord.x}/${coord.y}.png?ts=${Math.floor(Date.now()/(5*60*1000))}`;
     radarOverlay = new google.maps.ImageMapType({ getTileUrl: tileFn, tileSize: new google.maps.Size(256, 256), opacity: 0.7 });
     radarMap.overlayMapTypes.insertAt(0, radarOverlay);
+    markRefreshed('zone-radar');
     if (radarRefreshTimer) clearInterval(radarRefreshTimer);
     radarRefreshTimer = setInterval(() => {
       if (!radarMap) return;
       radarMap.overlayMapTypes.clear();
       radarOverlay = new google.maps.ImageMapType({ getTileUrl: tileFn, tileSize: new google.maps.Size(256, 256), opacity: 0.7 });
       radarMap.overlayMapTypes.insertAt(0, radarOverlay);
+      markRefreshed('zone-radar');
     }, 3 * 60 * 1000);
   } catch (e) {
     el.innerHTML = `<div style="color:var(--subtext);padding:60px;text-align:center;">Radar unavailable: ${escHtml(e.message)}</div>`;
@@ -1700,6 +2016,7 @@ async function updateTrafficMap() {
       trafficMap.setZoom(cfg.trafficZoom || 11);
     }
     if (!trafficLayer) { trafficLayer = new google.maps.TrafficLayer(); trafficLayer.setMap(trafficMap); }
+    markRefreshed('zone-traffic');
   } catch (e) {
     el.innerHTML = `<div style="color:var(--subtext);padding:60px;text-align:center;">Traffic unavailable: ${escHtml(e.message)}</div>`;
   }
@@ -1943,6 +2260,7 @@ async function fetchCalendar() {
     const r = await fetch(`/api/calendar/public/${SLUG}`);
     const j = await r.json();
     calendarEvents = j.events || [];
+    markRefreshed('zone-calendar');
   } catch (_) { calendarEvents = []; }
 }
 function renderCalendar() {
@@ -1983,6 +2301,7 @@ function renderBigNum() {
   setText('bignum-value',   computeBigNumValue(cfg));
   setText('bignum-unit',    cfg.bigNumUnit || '');
   setText('bignum-subline', cfg.bigNumSubline || '');
+  markRefreshed('zone-bignum');
   // Size class — admin picks small/medium/large/xl.
   const z = $('zone-bignum');
   if (z) {

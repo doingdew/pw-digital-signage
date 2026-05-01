@@ -99,7 +99,7 @@ function defaultScreenConfig() {
     //   Surveillance / maps: doors, radar, traffic
     zoneIds: [
       'zone-clock','zone-worldclocks','zone-sunarc',
-      'zone-shipments','zone-kpi','zone-bignum','zone-safety','zone-calendar','zone-meetings','zone-slack',
+      'zone-shipments','zone-warehouse','zone-kpi','zone-bignum','zone-safety','zone-calendar','zone-meetings','zone-slack',
       'zone-motivation',
       'zone-weather','zone-sports-results','zone-sports-upcoming','zone-trends',
       'zone-stocks-overview','zone-stocks-bigboard',
@@ -120,8 +120,31 @@ function defaultScreenConfig() {
     weatherUnits: 'imperial',
     showForecast: true,
 
-    // shipments
+    // Ambient background motion overlay on each zone. CSS-only, GPU-driven.
+    // Pattern: 'off' | 'drift' | 'aurora' | 'stars' | 'grid' | 'waves'.
+    // Intensity is a 0-100 slider that scales the overlay opacity.
+    bgMotionPattern: 'off',
+    bgMotionIntensity: 60,
+
+    // shipments — Google Sheet URL + per-column visibility/order. The
+    // shipmentsColumns array picks which columns from the source sheet to
+    // display and in what order. Empty = auto-detect (first 6 columns).
     googleSheetUrl: '',
+    // Warehouse Dashboard — three Google Sheet URLs feed the three panels.
+    // Each sheet is parsed as CSV; rows whose column A is non-empty are counted
+    // and the latest five column-A values are surfaced as chips. Empty = panel
+    // shows a placeholder; all three empty = the zone is skipped in rotation.
+    warehouseReceivingUrl: '',
+    warehousePickUrl: '',
+    warehouseShipUrl: '',
+    shipmentsColumns: [
+      'Request Date',
+      'Purchase Order: Purchase Order',
+      'Product Name: Product Name',
+      'Open Balance Qty',
+      'Promise Date',
+      'Tracking Number',
+    ],
 
     // Google Slides — embed a published presentation as a zone.
     // Accepts share/edit/embed URLs; the client extracts the presentation ID.
@@ -170,6 +193,12 @@ function defaultScreenConfig() {
     headerSize: 'medium',
     // Sun arc page size — scales the arc, meta row, and 3-day forecast cards.
     sunArcSize: 'medium',
+    // Nightly auto-reload — required for browsers running on memory-constrained
+    // hardware (Raspberry Pi etc.) where Chromium accumulates memory over hours
+    // of dynamic content and eventually gets OOM-killed by Linux. Setting the
+    // hour to -1 disables the reload entirely.
+    reloadHour: 3,        // local hour 0-23 to perform the reload; -1 disables
+    reloadMinute: 0,      // local minute (0-59) within that hour
 
     // KPI
     kpiItems: [],

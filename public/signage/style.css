@@ -10,6 +10,167 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { background: var(--bg); color: var(--text); font-family: var(--font); height: 100vh; overflow: hidden; position: relative; }
 
+/* Light theme overrides — applied when applyConfig() detects a near-white
+   --bg (Daylight, Paper, etc). The default tokens assume white-on-dark; on
+   a light background that's invisible. We swap text/subtext to dark, swap
+   white-on-white card surfaces to subtle black overlays, and tone down the
+   stripe / divider lines so they don't disappear. Per-zone gradients still
+   render but they were only ever decorative tints. */
+body.light-theme {
+  --text:        #1f2328;
+  --subtext:     #57606a;
+  --card-bg:     rgba(0,0,0,0.04);
+  --card-border: rgba(0,0,0,0.12);
+}
+body.light-theme .stock-row,
+body.light-theme .cwr-card,
+body.light-theme .slack-msg                 { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.12); }
+body.light-theme .trend-item,
+body.light-theme #shipments-table td,
+body.light-theme .sports-odds               { border-color: rgba(0,0,0,0.10); }
+body.light-theme #message-ticker            { border-top-color: rgba(0,0,0,0.12); color: var(--text); }
+body.light-theme #ticker-meta,
+body.light-theme #ticker-count              { color: rgba(0,0,0,0.65); }
+body.light-theme #ticker-count              { border-color: rgba(0,0,0,0.22); }
+body.light-theme .dot                        { background: rgba(0,0,0,0.25); }
+body.light-theme #last-refreshed             { color: rgba(0,0,0,0.55); }
+body.light-theme #cam-updated                { color: rgba(0,0,0,0.45); }
+/* Treemap and stocks tiles use coloured rgba in JS — those still work, but
+   the "no data" / flat tiles that defaulted to mid-grey rgb need lifting. */
+body.light-theme .stock-row.flat            { border-left-color: rgba(0,0,0,0.20); }
+/* Ambient motion overlays paint with rgba(255,255,255,…) which reads as a
+   ghostly white wash on a light page. Flip them to subtle black tints. */
+body.light-theme.bg-motion-drift  .zone::before {
+  background:
+    radial-gradient(circle at 25% 30%, rgba(0,0,0, calc(0.06 * var(--bg-motion-intensity))) 0%, transparent 45%),
+    radial-gradient(circle at 75% 70%, rgba(0,0,0, calc(0.05 * var(--bg-motion-intensity))) 0%, transparent 45%);
+}
+body.light-theme.bg-motion-stars  .zone::before {
+  background:
+    radial-gradient(circle 1px  at 30% 30%, rgba(0,0,0, calc(0.40 * var(--bg-motion-intensity))) 0%, transparent 50%) 0 0 / 60px 60px,
+    radial-gradient(circle 1.5px at 70% 70%, rgba(0,0,0, calc(0.22 * var(--bg-motion-intensity))) 0%, transparent 50%) 0 0 / 90px 90px;
+}
+body.light-theme.bg-motion-grid   .zone::before {
+  background:
+    linear-gradient(to right,  rgba(0,0,0, calc(0.10 * var(--bg-motion-intensity))) 1px, transparent 1px) 0 0 / 80px 80px,
+    linear-gradient(to bottom, rgba(0,0,0, calc(0.10 * var(--bg-motion-intensity))) 1px, transparent 1px) 0 0 / 80px 80px;
+}
+body.light-theme.bg-motion-waves  .zone::before {
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(0,0,0, calc(0.05 * var(--bg-motion-intensity))) 0 2px,
+    transparent 2px 60px
+  );
+}
+/* Aurora's coloured blobs already have their own hues — they read fine on
+   either base. Leave that pattern alone. */
+
+/* Uniform zone background — every zone shares the body --bg colour for a
+   single, consistent dashboard look. The :not() chain has higher specificity
+   than the per-zone #zone-X rules below, so it overrides their tinted radial
+   gradients without needing !important. The two exceptions (doors video frame,
+   slides iframe) keep their explicit opaque backgrounds. */
+.zone:not(#zone-doors):not(#zone-slides) { background: transparent; }
+
+/* Optional ambient motion overlay. Pure CSS / GPU — zero JS overhead. The
+   pattern is picked by a body class (bg-motion-drift|aurora|stars|grid|waves)
+   set from the admin Appearance tab. --bg-motion-intensity (0..1) scales the
+   opacity of every pattern from a single slider. isolation:isolate keeps the
+   negative-z pseudo inside the zone's stacking context. */
+:root { --bg-motion-intensity: 0.6; --bg-motion-speed: 1; }
+
+body[class*="bg-motion-"] .zone { isolation: isolate; }
+body[class*="bg-motion-"] .zone::before {
+  content: '';
+  position: absolute;
+  inset: -20%;
+  pointer-events: none;
+  z-index: -1;
+  will-change: transform, background-position;
+}
+
+/* DRIFT — two soft white blobs orbiting slowly. Calmest of the bunch. */
+@keyframes bgDrift {
+  0%   { transform: translate(-6%, -4%) scale(1);    }
+  33%  { transform: translate( 5%, -3%) scale(1.06); }
+  66%  { transform: translate(-3%,  6%) scale(0.96); }
+  100% { transform: translate(-6%, -4%) scale(1);    }
+}
+body.bg-motion-drift .zone::before {
+  background:
+    radial-gradient(circle at 25% 30%, rgba(255,255,255, calc(0.10 * var(--bg-motion-intensity))) 0%, transparent 45%),
+    radial-gradient(circle at 75% 70%, rgba(255,255,255, calc(0.08 * var(--bg-motion-intensity))) 0%, transparent 45%);
+  animation: bgDrift calc(90s / var(--bg-motion-speed)) ease-in-out infinite;
+}
+
+/* AURORA — three coloured blobs breathing + drifting. More present than drift. */
+@keyframes bgAurora {
+  0%   { transform: translate(-8%, -6%) scale(1);    }
+  50%  { transform: translate( 8%,  6%) scale(1.12); }
+  100% { transform: translate(-8%, -6%) scale(1);    }
+}
+body.bg-motion-aurora .zone::before {
+  background:
+    radial-gradient(ellipse at 20% 30%, rgba(120, 200, 255, calc(0.14 * var(--bg-motion-intensity))) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 60%, rgba(200, 120, 255, calc(0.12 * var(--bg-motion-intensity))) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 85%, rgba(120, 255, 180, calc(0.10 * var(--bg-motion-intensity))) 0%, transparent 50%);
+  animation: bgAurora calc(120s / var(--bg-motion-speed)) ease-in-out infinite;
+}
+
+/* STARS — two tiled dot fields panning at different rates (parallax). */
+@keyframes bgStars {
+  0%   { background-position: 0 0, 0 0; }
+  100% { background-position: 60px 60px, -90px -90px; }
+}
+body.bg-motion-stars .zone::before {
+  inset: 0;
+  background:
+    radial-gradient(circle 1px  at 30% 30%, rgba(255,255,255, calc(0.55 * var(--bg-motion-intensity))) 0%, transparent 50%) 0 0 / 60px 60px,
+    radial-gradient(circle 1.5px at 70% 70%, rgba(255,255,255, calc(0.30 * var(--bg-motion-intensity))) 0%, transparent 50%) 0 0 / 90px 90px;
+  animation: bgStars calc(180s / var(--bg-motion-speed)) linear infinite;
+}
+
+/* GRID — faint orthogonal grid lines slowly panning. */
+@keyframes bgGrid {
+  0%   { background-position: 0 0, 0 0; }
+  100% { background-position: 80px 0, 0 80px; }
+}
+body.bg-motion-grid .zone::before {
+  inset: 0;
+  background:
+    linear-gradient(to right,  rgba(255,255,255, calc(0.10 * var(--bg-motion-intensity))) 1px, transparent 1px) 0 0 / 80px 80px,
+    linear-gradient(to bottom, rgba(255,255,255, calc(0.10 * var(--bg-motion-intensity))) 1px, transparent 1px) 0 0 / 80px 80px;
+  animation: bgGrid calc(90s / var(--bg-motion-speed)) linear infinite;
+}
+
+/* WAVES — diagonal stripes slowly translating perpendicular to themselves. */
+@keyframes bgWaves {
+  0%   { background-position: 0 0; }
+  100% { background-position: 60px 60px; }
+}
+body.bg-motion-waves .zone::before {
+  inset: 0;
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(255,255,255, calc(0.06 * var(--bg-motion-intensity))) 0 2px,
+    transparent 2px 60px
+  );
+  animation: bgWaves calc(80s / var(--bg-motion-speed)) linear infinite;
+}
+
+/* When ambient motion is on, swap translucent card / row surfaces for opaque
+   equivalents so the pattern stays clearly *behind* foreground content rather
+   than shining through it. color-mix keeps the look theme-aware (works for
+   any user-picked --bg). */
+body[class*="bg-motion-"] {
+  --card-bg: color-mix(in srgb, var(--bg) 94%, white 6%);
+}
+body[class*="bg-motion-"] .stock-row { background: color-mix(in srgb, var(--bg) 96%, white 4%); }
+body[class*="bg-motion-"] .cwr-card  { background: color-mix(in srgb, var(--bg) 96%, white 4%); }
+/* Iframes have their own content; give them a solid backstop so any
+   transparency in the embedded page can't reveal the pattern. */
+body[class*="bg-motion-"] iframe { background: var(--bg); }
+
 /* HEADER — 5 sections, evenly spaced. All 5 columns share equal width
    and each item is centered inside its column, so the gaps between
    logo→doors→time→weather→date are identical. Height + font sizes are
@@ -85,6 +246,20 @@ body.header-size-xl     #header-weather-mini { font-size: 36px; }
 /* DOTS */
 #zone-dots { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; z-index: 100; transition: bottom 0.3s; }
 body.has-ticker #zone-dots { bottom: 96px; }
+/* Global "last refreshed" badge — sits just above the zone dots, centered.
+   `.hidden` is set when the active zone has no refreshable data (clock, sun
+   arc, etc.) so the badge doesn't lie about being stale. */
+#last-refreshed {
+  position: fixed; bottom: 56px; left: 50%; transform: translateX(-50%);
+  font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+  color: rgba(255,255,255,0.45);
+  z-index: 99;
+  pointer-events: none;
+  white-space: nowrap;
+  transition: bottom 0.3s, opacity 0.3s;
+}
+body.has-ticker #last-refreshed { bottom: 124px; }
+#last-refreshed.hidden { opacity: 0; }
 
 /* PERSISTENT MESSAGE TICKER (footer bar shown after a broadcast) */
 #message-ticker {
@@ -211,24 +386,113 @@ body.has-ticker #message-ticker { display: flex; }
 /* SHIPMENTS */
 #zone-shipments { background: radial-gradient(ellipse at 70% 40%, rgba(0,255,150,0.06) 0%, transparent 70%); justify-content: center; padding-top: var(--header-pad); }
 #zone-shipments .zone-title { position: absolute; top: calc(var(--header-pad) + 10px); left: 50%; transform: translateX(-50%); align-self: auto !important; margin-bottom: 0; text-align: center; }
-/* table-layout:auto lets columns shrink to content; nowrap on every column
-   except Notes keeps each row to a single line. Notes is the only column
-   allowed to wrap (and only as a last resort if the row gets very long). */
-#shipments-table { width: 100%; max-width: 1500px; border-collapse: collapse; table-layout: auto; }
-#shipments-table th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: var(--subtext); padding: 10px 18px; border-bottom: 1px solid var(--card-border); white-space: nowrap; }
-#shipments-table td { padding: 16px 18px; font-size: 20px; border-bottom: 1px solid rgba(255,255,255,0.05); white-space: nowrap; }
+/* table-layout:auto lets columns size to their content. Font + padding scale
+   with viewport so a 6-column row fits on a wide signage TV without being
+   tiny on a small monitor. nowrap keeps short fields (dates, qty, PO #) on
+   one line; the wrap-allowed columns below soak up any leftover slack. */
+/* width:auto + table-layout:auto = each column hugs its widest cell, table
+   shrinks to the sum of those widths. The zone's flex `align-items:center`
+   keeps it horizontally centred. max-width caps it on ultra-wide displays. */
+#shipments-table { width: auto; max-width: 100%; border-collapse: collapse; table-layout: auto; }
+#shipments-table th {
+  text-align: left;
+  font-size: clamp(10px, 0.75vw, 13px);
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: var(--subtext);
+  padding: clamp(6px, 0.7vw, 12px) clamp(10px, 1vw, 18px);
+  border-bottom: 1px solid var(--card-border);
+  white-space: nowrap;
+}
+#shipments-table td {
+  padding: clamp(8px, 1vw, 16px) clamp(10px, 1vw, 18px);
+  font-size: clamp(13px, 1.3vw, 20px);
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  white-space: nowrap;
+}
 /* Items + Notes columns are the variable-width ones; let them be the only
    ones that wrap if absolutely necessary. */
 #shipments-table th:nth-child(3),
 #shipments-table th:nth-child(6),
 #shipments-table td:nth-child(3),
-#shipments-table td:nth-child(6) { white-space: normal; }
+#shipments-table td:nth-child(6) { white-space: normal; word-break: break-word; }
 .status-badge { display: inline-block; padding: 3px 12px; border-radius: 20px; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
 .status-incoming  { background: rgba(0,170,255,0.2);  color: #00aaff; border: 1px solid rgba(0,170,255,0.4); }
 .status-arriving  { background: rgba(255,200,0,0.2);  color: #ffc800; border: 1px solid rgba(255,200,0,0.4); }
 .status-delivered { background: rgba(0,220,100,0.2);  color: #00dc64; border: 1px solid rgba(0,220,100,0.4); }
 .status-delayed   { background: rgba(255,80,80,0.2);  color: #ff5050; border: 1px solid rgba(255,80,80,0.4); }
-#shipments-updated { font-size: 12px; color: var(--subtext); margin-top: 16px; align-self: flex-start; padding-left: 8px; }
+
+/* WAREHOUSE — three big visual panels (Receiving / Pick / Ship). Each panel
+   counts non-empty rows in column A of its Google Sheet and shows the latest
+   identifiers as chips. The decorative orb in the corner gives each panel a
+   themed accent without being a chart that requires data interpretation. */
+#zone-warehouse {
+  /* No zone-level gradient — the panel orbs already provide all the colour. */
+  justify-content: center;
+  padding-top: var(--header-pad);
+  align-items: center;
+}
+#zone-warehouse .zone-title { position: absolute; top: calc(var(--header-pad) + 10px); left: 50%; transform: translateX(-50%); align-self: auto !important; margin-bottom: 0; text-align: center; }
+#warehouse-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 28px;
+  width: 100%;
+  max-width: 1700px;
+  padding: 0 24px;
+}
+.wh-panel {
+  position: relative;
+  overflow: hidden;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 22px;
+  padding: 36px 32px 32px;
+  min-height: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  isolation: isolate;
+}
+.wh-orb {
+  position: absolute;
+  inset: auto -90px -90px auto;       /* anchor in bottom-right */
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  filter: blur(56px);
+  opacity: 0.22;                       /* much lower — just a hint of colour */
+  pointer-events: none;
+  z-index: 0;
+}
+.wh-panel > :not(.wh-orb) { position: relative; z-index: 1; }
+.wh-icon   { font-size: 38px; line-height: 1; }
+.wh-kicker { font-size: 13px; text-transform: uppercase; letter-spacing: 4px; color: var(--subtext); margin-top: 4px; }
+.wh-count  { font-size: clamp(72px, 7.5vw, 120px); font-weight: 100; line-height: 1; font-variant-numeric: tabular-nums; margin-top: 6px; }
+.wh-sub    { font-size: 14px; color: var(--subtext); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 18px; }
+.wh-list   { list-style: none; display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow: hidden; }
+.wh-list li {
+  font-size: 14px;
+  color: var(--text);
+  padding: 6px 12px;
+  border-left: 2px solid currentColor;
+  background: rgba(255,255,255,0.04);
+  border-radius: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.85;
+}
+.wh-list li.wh-empty { border-left-color: transparent; color: var(--subtext); font-style: italic; opacity: 0.7; }
+/* Per-panel accent — orb colour, count colour, list border. */
+.wh-panel[data-panel="recv"] { --wh-accent: #ff8a3d; }
+.wh-panel[data-panel="pick"] { --wh-accent: #58a6ff; }
+.wh-panel[data-panel="ship"] { --wh-accent: #34d399; }
+.wh-panel .wh-orb     { background: radial-gradient(circle, var(--wh-accent) 0%, transparent 70%); }
+.wh-panel .wh-icon    { color: var(--wh-accent); filter: drop-shadow(0 0 14px color-mix(in srgb, var(--wh-accent) 35%, transparent)); }
+.wh-panel .wh-count   { color: var(--wh-accent); }
+.wh-panel .wh-list li { color: var(--wh-accent); }
+.wh-error { color: #ff5050; font-size: 13px; opacity: 0.8; }
 
 /* MESSAGES — list every active message stacked, newest on top */
 #zone-slack { background: radial-gradient(ellipse at 50% 60%, rgba(100,50,200,0.08) 0%, transparent 70%); justify-content: center; padding-top: var(--header-pad); }
@@ -245,7 +509,7 @@ body.has-ticker #message-ticker { display: flex; }
 .slack-msg-time { font-size: 13px; color: var(--subtext); white-space: nowrap; }
 .slack-msg-body { font-size: clamp(22px, 2.4vw, 34px); font-weight: 300; line-height: 1.4; color: var(--text); white-space: pre-wrap; word-break: break-word; }
 #slack-empty { font-size: 28px; color: var(--subtext); font-weight: 200; text-align: center; padding: 40px; }
-#slack-msg-count { font-size: 13px; color: var(--subtext); margin-top: 20px; align-self: flex-end; }
+#slack-msg-count { font-size: 13px; color: var(--subtext); margin-top: 20px; align-self: center; text-align: center; }
 
 /* KPI */
 #zone-kpi { background: radial-gradient(ellipse at 50% 30%, rgba(255,107,53,0.07) 0%, transparent 70%); justify-content: center; padding-top: var(--header-pad); }
@@ -282,17 +546,16 @@ body.has-ticker #message-ticker { display: flex; }
 #cam-updated { position: absolute; bottom: 8px; right: 12px; font-size: 11px; color: rgba(255,255,255,0.35); z-index: 10; pointer-events: none; }
 
 /* SPORTS — title pinned at top, leagues vertically centered in remaining space */
-#zone-sports, #zone-sports-results, #zone-sports-upcoming {
+#zone-sports-results, #zone-sports-upcoming {
   background: radial-gradient(ellipse at 50% 40%, rgba(255,107,53,0.07) 0%, transparent 70%);
   justify-content: center;            /* center the league stack vertically */
   padding-top: var(--header-pad);
   align-items: center;
 }
-#zone-sports .zone-title,
 #zone-sports-results .zone-title,
 #zone-sports-upcoming .zone-title { position: absolute; top: calc(var(--header-pad) + 10px); left: 50%; transform: translateX(-50%); align-self: auto !important; margin-bottom: 0; text-align: center; }
 #sports-results-updated, #sports-upcoming-updated { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); font-size: 12px; color: var(--subtext); margin-top: 0; padding-left: 0; align-self: auto; }
-#sports-leagues, #sports-results-leagues, #sports-upcoming-leagues {
+#sports-results-leagues, #sports-upcoming-leagues {
   display: flex; flex-direction: column; gap: 38px;   /* big gap between leagues */
   width: 100%; max-width: 1600px;
   max-height: calc(100vh - 220px); overflow-y: auto;

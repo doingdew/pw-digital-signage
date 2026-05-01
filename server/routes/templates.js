@@ -13,8 +13,15 @@ const router = express.Router();
 const SCREEN_SPECIFIC = ['logoUploadId'];
 
 // Keys that are server-global and live elsewhere — exclude so a template
-// snapshot doesn't bake stale credentials in.
-const GLOBAL_KEYS = ['googleMapsApiKey', 'unifiHost', 'unifiApiKey', 'unifiProxyUrl'];
+// snapshot doesn't bake stale credentials in. Mirror of screens.js GLOBAL_KEYS.
+const GLOBAL_KEYS = [
+  'googleMapsApiKey',
+  'unifiHost',
+  'unifiApiKey',          // legacy combined token (back-compat)
+  'unifiAccessApiKey',
+  'unifiProtectApiKey',
+  'unifiProxyUrl',
+];
 
 function stripForTemplate(config) {
   const out = { ...config };
