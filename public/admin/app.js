@@ -1969,6 +1969,32 @@ function renderRotationTab(body, cfg) {
       </div>
       <div class="btn-row"><button class="btn btn-primary" id="save-reload">💾 Save</button></div>
     </div>
+
+    <div class="card">
+      <div class="card-title"><span class="icon">🛡️</span> Kiosk Watchdog</div>
+      <p class="muted">
+        Belt-and-braces with the nightly reload above — checks every 10 minutes
+        and reloads the page early if either threshold is exceeded. Catches
+        runaway memory and slow leaks before Chromium runs out of headroom.
+        Set either field to <code>0</code> to disable that branch.
+      </p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:end;">
+        <div class="form-row">
+          <label>Max JS heap (MB)</label>
+          <input type="number" id="kiosk-heap-mb" min="0" max="4096" step="50" value="${cfg.kioskMaxHeapMb ?? 700}">
+        </div>
+        <div class="form-row">
+          <label>Max uptime (hours)</label>
+          <input type="number" id="kiosk-uptime-hr" min="0" max="168" value="${cfg.kioskMaxUptimeHours ?? 12}">
+        </div>
+      </div>
+      <p class="muted" style="font-size:12px;margin-top:4px;">
+        Defaults (700 MB / 12 h) suit a Raspberry Pi 4 running this signage.
+        On a desktop kiosk with plenty of RAM you can raise the heap ceiling
+        or set both to <code>0</code> and rely on the nightly reload alone.
+      </p>
+      <div class="btn-row"><button class="btn btn-primary" id="save-kiosk">💾 Save</button></div>
+    </div>
   `;
   $('rot-slider').addEventListener('input', () => $('rot-disp').textContent = $('rot-slider').value + 's');
   // Click any tick label to jump the slider to that value.
@@ -1987,6 +2013,12 @@ function renderRotationTab(body, cfg) {
     const m = Math.max(0,  Math.min(59, parseInt($('reload-min').value, 10) || 0));
     await saveCurrentConfig({ reloadHour: h, reloadMinute: m });
     toast(h < 0 ? 'Auto-reload disabled' : `Reload set to ${h}:${String(m).padStart(2,'0')}`);
+  });
+  $('save-kiosk').addEventListener('click', async () => {
+    const mb = Math.max(0, Math.min(4096, parseInt($('kiosk-heap-mb').value, 10) || 0));
+    const hr = Math.max(0, Math.min(168,  parseInt($('kiosk-uptime-hr').value, 10) || 0));
+    await saveCurrentConfig({ kioskMaxHeapMb: mb, kioskMaxUptimeHours: hr });
+    toast('Watchdog saved');
   });
 }
 
