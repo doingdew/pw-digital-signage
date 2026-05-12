@@ -25,6 +25,11 @@ services:
       # Optional: send the session cookie only over HTTPS. Enable this when
       # the service is behind a TLS terminator (along with TRUST_PROXY=1).
       # COOKIE_SECURE: "1"
+      # Server timezone — controls how server-rendered timestamps (e.g. the
+      # Hikvision Slack alert "at HH:MM") are formatted. Without this, Node
+      # inside Docker defaults to UTC. Use any IANA name (America/New_York,
+      # America/Chicago, Australia/Sydney, Europe/London, …).
+      TZ: "America/New_York"
       # UniFi credentials are now managed in the admin UI:
       #   admin → Settings → UniFi Protect & Access
       # The values below are only used as a fallback if the admin Settings

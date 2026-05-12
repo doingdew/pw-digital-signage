@@ -100,6 +100,71 @@ chromium --kiosk --noerrdialogs --disable-infobars \
   http://your-server:3000/s/lobby
 ```
 
+### Reliability on Raspberry Pi (long-running kiosks)
+
+Out-of-the-box Chromium on a Pi 4 will gradually accumulate memory and can crash ("Aw, Snap!") after a few hours to days of continuous play. The signage page already does most of the heavy lifting in code — but a couple of system-level tweaks turn an unreliable kiosk into one that runs for weeks.
+
+**1. The app self-recovers.** Three layers, all enabled by default and tunable in admin → per-screen config (the signage page reloads on each trigger):
+
+- **Nightly reload** (`reloadHour`/`reloadMinute`, default 03:00 local) — a clean slate during off-hours.
+- **Heap watchdog** (`kioskMaxHeapMb`, default 700 MB) — if the JS heap balloons past this threshold mid-day, reload before Chromium runs out of headroom.
+- **Max uptime** (`kioskMaxUptimeHours`, default 12 h) — reload after this long even if heap looks fine, catching non-JS leaks (detached DOM, GPU resources).
+
+Set any of these to `0` to disable.
+
+**2. Chromium flags that make a real difference on Pi.** Replace the basic invocation with:
+
+```bash
+chromium-browser --kiosk --noerrdialogs --disable-infobars \
+  --autoplay-policy=no-user-gesture-required \
+  --check-for-update-interval=31536000 \
+  --password-store=basic --no-first-run --no-default-browser-check \
+  --disable-features=TranslateUI,UserAgentClientHint \
+  --disable-pinch --overscroll-history-navigation=0 \
+  --enable-features=OverlayScrollbar \
+  --disk-cache-size=33554432 \
+  --use-gl=egl \
+  http://your-server:3000/s/lobby
+```
+
+The Pi-specific bits are `--use-gl=egl` (uses the native GPU instead of llvmpipe — major stability win on Bullseye+) and `--disk-cache-size=33554432` (caps the cache at 32 MB so it doesn't eat the SD card).
+
+**3. Run Chromium under systemd so a crash auto-restarts.** Drop this file at `/etc/systemd/system/signage-kiosk.service` and `systemctl enable --now signage-kiosk`:
+
+```ini
+[Unit]
+Description=Signage kiosk (Chromium)
+After=graphical.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/pi/.Xauthority
+ExecStartPre=/usr/bin/rm -rf /home/pi/.config/chromium/Singleton*
+ExecStart=/usr/bin/chromium-browser --kiosk --noerrdialogs --disable-infobars \
+  --autoplay-policy=no-user-gesture-required \
+  --check-for-update-interval=31536000 \
+  --password-store=basic --no-first-run --no-default-browser-check \
+  --disable-features=TranslateUI \
+  --disk-cache-size=33554432 \
+  --use-gl=egl \
+  http://your-server:3000/s/lobby
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=graphical.target
+```
+
+If Chromium ever does crash, systemd restarts it within 5 seconds. Combined with the in-app watchdog above, this is what makes the kiosk survive for weeks.
+
+**4. Hardware tips.**
+- Use an SSD over USB 3.0 instead of an SD card if you can — SD cards die when written constantly.
+- Use an active cooler / heatsink. Throttling Pi → slow renders → more GPU stalls.
+- A 4 GB Pi 4 is fine; an 8 GB is more comfortable if you're showing the Stocks Big Board (500 DOM nodes) regularly.
+
 ## Zones
 
 Each screen rotates through whichever **zones** you've enabled, dwelling on each for a configurable interval. Empty zones (e.g. no upcoming sports games, no weather configured) auto-skip. Pick and reorder them in admin → **Zones**.

@@ -200,6 +200,11 @@ function defaultScreenConfig() {
     reloadHour: 3,        // local hour 0-23 to perform the reload; -1 disables
     reloadMinute: 0,      // local minute (0-59) within that hour
 
+    // Kiosk watchdog — early reload triggers that complement the nightly cron.
+    // Set either to 0 to disable that branch of the watchdog.
+    kioskMaxHeapMb: 700,       // reload if JS heap (Chromium) exceeds this
+    kioskMaxUptimeHours: 12,   // reload after this many hours of continuous uptime
+
     // KPI
     kpiItems: [],
 

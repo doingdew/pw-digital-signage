@@ -107,6 +107,11 @@ async function boot() {
   // Nightly self-reload — keeps Chromium on Raspberry Pi (or any memory-
   // constrained kiosk) from gradually OOM-ing over a multi-day uptime.
   setInterval(maybeNightlyReload, 60 * 1000);
+  // Additional watchdog: reload early if the JS heap balloons OR the page has
+  // been alive long enough that subtle leaks become risky. Belt-and-braces
+  // with the nightly reload — the kiosk should never see Chromium crash with
+  // a "Aw, Snap!" page on a long-running TV. See KIOSK_WATCHDOG_* constants.
+  setInterval(kioskWatchdog, KIOSK_WATCHDOG_INTERVAL_MS);
 
   // WebSocket — live updates
   connectWs();
@@ -441,6 +446,43 @@ function updateClock() {
 // reliable workaround for browsers on memory-constrained hardware (Pi,
 // Chromebox, fanless mini-PCs) where Chromium accumulates memory over hours
 // of dynamic DOM mutation and image swaps. Industry-standard kiosk pattern.
+
+// Kiosk watchdog tunables. Override per-screen by setting these keys in the
+// screen's config (they're read live from state.config when the watchdog runs)
+// or change the defaults here to apply across every screen.
+//
+//   kioskMaxHeapMb — reload if performance.memory.usedJSHeapSize > this many
+//     megabytes. Chromium on Pi typically hits trouble well before the JS
+//     heap limit (the GPU process is the more common crasher), but a runaway
+//     heap is a reliable early signal.
+//   kioskMaxUptimeHours — reload after this many hours of continuous uptime
+//     even if memory looks fine. Belt-and-braces against accumulated detached
+//     DOM nodes, descriptor leaks, etc. Set to 0 to disable.
+const KIOSK_WATCHDOG_INTERVAL_MS  = 10 * 60 * 1000;   // 10 min between checks
+const KIOSK_DEFAULT_MAX_HEAP_MB   = 700;              // ~½ of Pi 4's 2GB headroom
+const KIOSK_DEFAULT_MAX_UPTIME_HR = 12;
+const _bootAt = Date.now();
+function kioskWatchdog() {
+  const cfg = state.config || {};
+  // Heap pressure check — performance.memory is Chromium-only; the optional
+  // chain quietly no-ops on other browsers (we don't ship to those anyway,
+  // but defending against the API disappearing in a future Chromium is cheap).
+  const maxHeapMb = Number.isFinite(+cfg.kioskMaxHeapMb) ? +cfg.kioskMaxHeapMb : KIOSK_DEFAULT_MAX_HEAP_MB;
+  const usedBytes = performance?.memory?.usedJSHeapSize;
+  if (maxHeapMb > 0 && usedBytes > maxHeapMb * 1024 * 1024) {
+    console.warn(`[kiosk] heap ${(usedBytes / 1024 / 1024).toFixed(0)}MB > ${maxHeapMb}MB threshold — reloading`);
+    location.reload();
+    return;
+  }
+  // Max-uptime check — independent of heap, catches non-JS leaks (detached
+  // DOM, GPU resource accumulation) that JS heap doesn't show.
+  const maxHr = Number.isFinite(+cfg.kioskMaxUptimeHours) ? +cfg.kioskMaxUptimeHours : KIOSK_DEFAULT_MAX_UPTIME_HR;
+  if (maxHr > 0 && (Date.now() - _bootAt) > maxHr * 3600 * 1000) {
+    console.warn(`[kiosk] uptime > ${maxHr}h — reloading`);
+    location.reload();
+  }
+}
+
 let _lastReloadCheck = 0;
 function maybeNightlyReload() {
   const cfg = state.config; if (!cfg) return;
@@ -1700,13 +1742,6 @@ async function refreshStocksBigBoard() {
   renderBigBoardTreemap();
 }
 
-const SP500_SESSION_LABEL = {
-  open:   'Market Open',
-  midday: 'Mid-Day',
-  close:  'Market Close',
-  boot:   '',   // boot-time pre-warm has no nice label
-};
-
 // Squarified treemap (Bruls et al.). Returns absolute-positioned rects that
 // fill the {x,y,w,h} container, sized by each item's `value`.
 function squarify(items, x, y, w, h) {
@@ -1863,14 +1898,10 @@ function renderBigBoardTreemap() {
     html += `</div></div>`;
   }
   bbEl.innerHTML = html;
-  // Show the *snapshot* time, not the poll time, since the data only updates
-  // 3x per trading day (open / mid-day / close).
-  if (state.sp500At) {
-    const when = new Date(state.sp500At).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const session = SP500_SESSION_LABEL[state.sp500Session];
-    setText('stocks-bigboard-updated', session ? `${session} · ${when}` : `Snapshot · ${when}`);
-    markRefreshed('zone-stocks-bigboard', state.sp500At);
-  }
+  // Snapshot time is surfaced via the global "Last refreshed" badge — using
+  // the actual snapshot timestamp rather than the poll time, since the data
+  // only updates 3× per trading day (open / mid-day / close).
+  if (state.sp500At) markRefreshed('zone-stocks-bigboard', state.sp500At);
 }
 
 // ── Trends ───────────────────────────────────────────────────────

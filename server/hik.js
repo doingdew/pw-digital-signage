@@ -25,6 +25,30 @@ const wsHub = require('./ws');
 let slackPostCameraAlert = null;
 try { slackPostCameraAlert = require('./slack').postCameraAlert; } catch (_) {}
 
+// Default IANA timezone used when neither the global config nor the process
+// TZ env var has been set. Picked because the rest of the deployment is on
+// US Eastern (S&P 500 schedule etc.) — change LOCAL_TZ_FALLBACK below or set
+// the TZ env var in docker-compose to override.
+const LOCAL_TZ_FALLBACK = 'America/New_York';
+
+// Format a wall-clock time-of-day string in the server's local timezone for
+// human-facing Slack alerts. Node inside Docker defaults to UTC unless TZ is
+// set, so we resolve in priority order: app setting → TZ env → fallback.
+function formatLocalTime(ms) {
+  const cfg = (typeof getSetting === 'function' && getSetting('hikvision')) || {};
+  const tz = (cfg.timezone || process.env.TZ || LOCAL_TZ_FALLBACK || '').trim();
+  try {
+    return new Date(ms).toLocaleTimeString('en-US', {
+      timeZone: tz || undefined,
+      hour: 'numeric', minute: '2-digit', hour12: true,
+    });
+  } catch (_) {
+    // Bogus IANA name — fall back to the host's default behaviour rather
+    // than throwing inside the alert path.
+    return new Date(ms).toLocaleTimeString();
+  }
+}
+
 const STREAM_RECONNECT_BASE_MS = 3000;
 const STREAM_RECONNECT_MAX_MS  = 60 * 1000;
 const SNAPSHOT_TIMEOUT_MS      = 6000;
@@ -384,7 +408,7 @@ function fireTrigger({ eventType, targetType }) {
       .then(async snap => {
         const niceClass = targetType ? targetType.replace(/^\w/, c => c.toUpperCase()) : 'Object';
         const niceEvent = eventType.replace(/detection/i, ' detection').replace(/^\w/, c => c.toUpperCase());
-        const text = `🚨 *${niceClass} detected* — ${niceEvent} on ${cfg.label} at ${new Date(now).toLocaleTimeString()}`;
+        const text = `🚨 *${niceClass} detected* — ${niceEvent} on ${cfg.label} at ${formatLocalTime(now)}`;
         const r = await slackPostCameraAlert({
           channel: cfg.slackChannel,
           text,

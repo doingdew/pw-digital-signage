@@ -974,7 +974,7 @@ body.has-ticker #message-ticker { display: flex; }
 .stock-change { font-size: 20px; font-weight: 500; text-align: right; }
 .stock-row.up   .stock-change { color: #16c784; }
 .stock-row.down .stock-change { color: #ea3943; }
-#stocks-overview-updated, #stocks-bigboard-updated {
+#stocks-overview-updated {
   margin-top: 14px; color: var(--subtext); font-size: 13px; letter-spacing: 2px; text-transform: uppercase;
 }
 
